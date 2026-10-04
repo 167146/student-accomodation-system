@@ -1,8 +1,10 @@
 <?php
 
+session_start();
+
 require_once "../config/database.php";
 
-$message = "";
+$error = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
@@ -13,60 +15,48 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $confirmPassword = $_POST["confirm_password"];
     $role = $_POST["role"];
 
-    // Check that all fields are filled
     if (
         empty($name) ||
         empty($email) ||
-        empty($phone) ||
         empty($password) ||
         empty($confirmPassword) ||
         empty($role)
     ) {
-        $message = "Please fill in all fields.";
-    }
 
-    // Check email format
-    elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $message = "Please enter a valid email address.";
-    }
+        $error = "Please fill in all required fields.";
 
-    // Check password confirmation
-    elseif ($password !== $confirmPassword) {
-        $message = "Passwords do not match.";
-    }
+    } elseif ($password !== $confirmPassword) {
 
-    // Only students and landlords can register
-    elseif ($role !== "student" && $role !== "landlord") {
-        $message = "Invalid registration role.";
-    }
+        $error = "Passwords do not match.";
 
-    else {
+    } elseif (!in_array($role, ["student", "landlord"])) {
 
-        // Check whether email already exists
-        $check = $pdo->prepare(
+        $error = "Invalid account type.";
+
+    } else {
+
+        $stmt = $pdo->prepare(
             "SELECT id FROM users WHERE email = ?"
         );
 
-        $check->execute([$email]);
+        $stmt->execute([$email]);
 
-        if ($check->fetch()) {
+        if ($stmt->fetch()) {
 
-            $message = "An account with this email already exists.";
+            $error = "An account with this email already exists.";
 
         } else {
 
-            // Hash the password
             $passwordHash = password_hash(
                 $password,
                 PASSWORD_DEFAULT
             );
 
-            // Insert the user into the database
-            $sql = "INSERT INTO users
-                    (name, email, password, phone, role)
-                    VALUES (?, ?, ?, ?, ?)";
-
-            $stmt = $pdo->prepare($sql);
+            $stmt = $pdo->prepare(
+                "INSERT INTO users
+                (name, email, password, phone, role)
+                VALUES (?, ?, ?, ?, ?)"
+            );
 
             $stmt->execute([
                 $name,
@@ -76,7 +66,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $role
             ]);
 
-            $message = "Registration successful! You can now log in.";
+            header("Location: login.php");
+            exit;
         }
     }
 }
@@ -92,7 +83,9 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Register - Student Accommodation</title>
+    <title>
+        Create Account | CampusNest
+    </title>
 
     <link rel="stylesheet" href="../assets/css/style.css">
 
@@ -100,84 +93,227 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 <body>
 
-    <h1>Create Account</h1>
+    <div class="auth-page">
 
-    <?php if (!empty($message)): ?>
 
-    <p>
-        <?php echo htmlspecialchars($message); ?>
-    </p>
+        <!-- IMAGE -->
 
-    <?php endif; ?>
+        <div class="auth-image">
 
-    <form method="POST" action="">
+            <img src="https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1000&q=85"
+                alt="Student apartment">
 
-        <label for="name">Name</label>
-        <br>
+            <div class="auth-image-overlay">
 
-        <input type="text" id="name" name="name" required>
+                <h1>
+                    Your next home<br>
+                    is waiting.
+                </h1>
 
-        <br><br>
+                <p>
+                    Join UniMtaaand discover
+                    accommodation that fits your lifestyle,
+                    budget and university journey.
+                </p>
 
-        <label for="email">Email</label>
-        <br>
+            </div>
 
-        <input type="email" id="email" name="email" required>
+        </div>
 
-        <br><br>
 
-        <label for="phone">Phone</label>
-        <br>
+        <!-- FORM -->
 
-        <input type="text" id="phone" name="phone" required>
+        <div class="auth-form-side">
 
-        <br><br>
+            <div class="auth-card">
 
-        <label for="password">Password</label>
-        <br>
+                <div class="brand" style="margin-bottom:25px;">
 
-        <input type="password" id="password" name="password" required>
+                    <div class="brand-icon">
+                        🏠
+                    </div>
 
-        <br><br>
+                    <div>
 
-        <label for="confirm_password">
-            Confirm Password
-        </label>
-        <br>
+                        <div class="brand-name">
+                            UniMtaa
+                        </div>
 
-        <input type="password" id="confirm_password" name="confirm_password" required>
+                        <span class="brand-subtitle">
+                            Student Accommodation
+                        </span>
 
-        <br><br>
+                    </div>
 
-        <label for="role">Role</label>
-        <br>
+                </div>
 
-        <select id="role" name="role" required>
 
-            <option value="">Select Role</option>
+                <h2>
+                    Create your account
+                </h2>
 
-            <option value="student">
-                Student
-            </option>
+                <p class="auth-card-subtitle">
+                    Start exploring better accommodation today.
+                </p>
 
-            <option value="landlord">
-                Landlord
-            </option>
 
-        </select>
+                <?php if (!empty($error)): ?>
 
-        <br><br>
+                <div style="
+                    background:#FEE2E2;
+                    color:#991B1B;
+                    padding:12px;
+                    border-radius:10px;
+                    font-size:13px;
+                    margin-bottom:20px;
+                ">
 
-        <button type="submit">
-            REGISTER
-        </button>
+                    <?php echo htmlspecialchars($error); ?>
 
-    </form>
+                </div>
 
-    <p>
-        Already have an account?
-        <a href="login.php">Login</a>
-    </p>
+                <?php endif; ?>
+
+
+                <form method="POST">
+
+
+                    <div class="form-group">
+
+                        <label>
+                            Full Name
+                        </label>
+
+                        <input type="text" name="name" class="form-control" placeholder="Your full name" required>
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label>
+                            Email Address
+                        </label>
+
+                        <input type="email" name="email" class="form-control" placeholder="you@example.com" required>
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label>
+                            Phone Number
+                        </label>
+
+                        <input type="tel" name="phone" class="form-control" placeholder="07XX XXX XXX">
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label>
+                            I am registering as
+                        </label>
+
+
+                        <div class="role-selection">
+
+
+                            <label class="role-option">
+
+                                <input type="radio" name="role" value="student" required>
+
+                                <div class="role-option-icon">
+                                    🎓
+                                </div>
+
+                                <strong>
+                                    Student
+                                </strong>
+
+                                <small>
+                                    Find accommodation
+                                </small>
+
+                            </label>
+
+
+                            <label class="role-option">
+
+                                <input type="radio" name="role" value="landlord">
+
+                                <div class="role-option-icon">
+                                    🏠
+                                </div>
+
+                                <strong>
+                                    Landlord
+                                </strong>
+
+                                <small>
+                                    List accommodation
+                                </small>
+
+                            </label>
+
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label>
+                            Password
+                        </label>
+
+                        <input type="password" name="password" class="form-control" placeholder="Create a password"
+                            required>
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label>
+                            Confirm Password
+                        </label>
+
+                        <input type="password" name="confirm_password" class="form-control"
+                            placeholder="Repeat your password" required>
+
+                    </div>
+
+
+                    <button type="submit" class="btn btn-purple auth-submit">
+
+                        Create Account →
+
+                    </button>
+
+
+                </form>
+
+
+                <div class="auth-footer">
+
+                    Already have an account?
+
+                    <a href="login.php">
+                        Login
+                    </a>
+
+                </div>
+
+
+            </div>
+
+        </div>
+
+    </div>
 
 </body>
 

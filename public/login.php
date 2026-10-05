@@ -8,8 +8,8 @@ $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    $email = trim($_POST["email"]);
-    $password = $_POST["password"];
+    $email = trim($_POST["email"] ?? "");
+    $password = $_POST["password"] ?? "";
 
     if (empty($email) || empty($password)) {
 
@@ -18,21 +18,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     } else {
 
         $stmt = $pdo->prepare(
-            "SELECT * FROM users WHERE email = ? LIMIT 1"
+            "SELECT email, full_name, password_hash, role
+             FROM users
+             WHERE email = ?
+             LIMIT 1"
         );
 
         $stmt->execute([$email]);
 
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($user && password_verify(
-            $password,
-            $user["password"]
-        )) {
+        if ($user && password_verify($password, $user["password_hash"])) {
 
-            $_SESSION["user_id"] = $user["id"];
-            $_SESSION["name"] = $user["name"];
-            $_SESSION["role"] = $user["role"];
+            // Prevent session fixation
+            session_regenerate_id(true);
+
+            // Email is the primary key, so it replaces user_id
+            $_SESSION["email"] = $user["email"];
+            $_SESSION["name"]  = $user["full_name"];
+            $_SESSION["role"]  = $user["role"];
 
             if ($user["role"] === "student") {
 
@@ -46,9 +50,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 header("Location: ../dashboard/admin.php");
 
+            } else {
+
+                $error = "Your account has no valid role.";
+
             }
 
-            exit;
+            if (empty($error)) {
+                exit;
+            }
 
         } else {
 
@@ -69,9 +79,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>
-        Login | CampusNest
-    </title>
+    <title>Login | CampusNest</title>
 
     <link rel="stylesheet" href="../assets/css/style.css">
 
@@ -93,24 +101,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 <div class="brand" style="margin-bottom:40px;">
 
-                    <div class="brand-icon">
-                        🏠
-                    </div>
+                    <div class="brand-icon">🏠</div>
 
                     <div>
 
-                        <div style="
-                        font-size:21px;
-                        font-weight:800;
-                        ">
-
+                        <div style="font-size:21px; font-weight:800;">
                             CampusNest
-
                         </div>
 
-                        <small>
-                            Student Accommodation
-                        </small>
+                        <small>Student Accommodation</small>
 
                     </div>
 
@@ -142,22 +141,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 <div class="auth-logo">
 
-                    <div style="
-                    font-size:13px;
-                    color:#6D28D9;
-                    font-weight:700;
-                    ">
-
-                        UniMtaa
-
+                    <div style="font-size:13px; color:#6D28D9; font-weight:700;">
+                        CampusNest
                     </div>
 
                 </div>
 
 
-                <h2>
-                    Welcome back 👋
-                </h2>
+                <h2>Welcome back 👋</h2>
 
                 <p class="auth-card-subtitle">
                     Login to continue exploring accommodation.
@@ -187,20 +178,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                     <div class="form-group">
 
-                        <label>
-                            Email Address
-                        </label>
+                        <label>Email Address</label>
 
-                        <input type="email" name="email" class="form-control" placeholder="you@example.com" required>
+                        <input type="email" name="email" class="form-control" placeholder="you@example.com"
+                            value="<?php echo htmlspecialchars($email ?? ''); ?>" required>
 
                     </div>
 
 
                     <div class="form-group">
 
-                        <label>
-                            Password
-                        </label>
+                        <label>Password</label>
 
                         <input type="password" name="password" class="form-control" placeholder="Enter your password"
                             required>
@@ -222,25 +210,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                     Don't have an account?
 
-                    <a href="register.php">
-                        Create one
-                    </a>
+                    <a href="register.php">Create one</a>
 
                 </div>
 
 
-                <div style="
-                text-align:center;
-                margin-top:30px;
-            ">
+                <div style="text-align:center; margin-top:30px;">
 
-                    <a href="index.php" style="
-                    color:#81788A;
-                    font-size:12px;
-                    ">
-
+                    <a href="index.php" style="color:#81788A; font-size:12px;">
                         ← Back to home
-
                     </a>
 
                 </div>

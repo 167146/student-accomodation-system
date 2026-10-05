@@ -64,9 +64,8 @@
 
         <div class="nav-buttons">
 
-            <a href="login.php" class="btn btn-outline-purple">
-
-                Login
+            <a href="auth/login.php">Login</a>
+            Login
 
             </a>
 

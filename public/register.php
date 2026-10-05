@@ -8,12 +8,18 @@ $error = "";
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-    $name = trim($_POST["name"]);
-    $email = trim($_POST["email"]);
-    $phone = trim($_POST["phone"]);
-    $password = $_POST["password"];
-    $confirmPassword = $_POST["confirm_password"];
-    $role = $_POST["role"];
+    // Get form information
+    $name = trim($_POST["name"] ?? "");
+    $email = trim($_POST["email"] ?? "");
+    $phone = trim($_POST["phone"] ?? "");
+    $password = $_POST["password"] ?? "";
+    $confirmPassword = $_POST["confirm_password"] ?? "";
+    $role = $_POST["role"] ?? "";
+
+
+    // ==========================================
+    // VALIDATION
+    // ==========================================
 
     if (
         empty($name) ||
@@ -25,32 +31,57 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         $error = "Please fill in all required fields.";
 
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+
+        $error = "Please enter a valid email address.";
+
     } elseif ($password !== $confirmPassword) {
 
         $error = "Passwords do not match.";
 
-    } elseif (!in_array($role, ["student", "landlord"])) {
+    } elseif (strlen($password) < 8) {
 
-        $error = "Invalid account type.";
+        $error = "Password must be at least 8 characters long.";
+
+    } elseif (!in_array($role, ["student", "landlord"], true)) {
+
+        // Admin registration is NOT allowed here.
+        $error = "Please select either Student or Landlord.";
 
     } else {
 
+        // ==========================================
+        // CHECK WHETHER EMAIL ALREADY EXISTS
+        // ==========================================
+
         $stmt = $pdo->prepare(
-            "SELECT id FROM users WHERE email = ?"
+            "SELECT id FROM users WHERE email = ? LIMIT 1"
         );
 
         $stmt->execute([$email]);
 
-        if ($stmt->fetch()) {
+        $existingUser = $stmt->fetch();
+
+
+        if ($existingUser) {
 
             $error = "An account with this email already exists.";
 
         } else {
 
+            // ==========================================
+            // HASH THE PASSWORD
+            // ==========================================
+
             $passwordHash = password_hash(
                 $password,
                 PASSWORD_DEFAULT
             );
+
+
+            // ==========================================
+            // INSERT USER INTO DATABASE
+            // ==========================================
 
             $stmt = $pdo->prepare(
                 "INSERT INTO users
@@ -66,7 +97,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $role
             ]);
 
-            header("Location: login.php");
+
+            // ==========================================
+            // REGISTRATION SUCCESSFUL
+            // ==========================================
+
+            header("Location: login.php?registered=1");
             exit;
         }
     }
@@ -83,25 +119,26 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>
-        Create Account | CampusNest
-    </title>
+    <title>Create Account | CampusNest</title>
 
     <link rel="stylesheet" href="../assets/css/style.css">
 
 </head>
+
 
 <body>
 
     <div class="auth-page">
 
 
-        <!-- IMAGE -->
+        <!-- ==========================================
+         LEFT IMAGE
+         ========================================== -->
 
         <div class="auth-image">
 
             <img src="https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=1000&q=85"
-                alt="Student apartment">
+                alt="Student accommodation">
 
             <div class="auth-image-overlay">
 
@@ -111,9 +148,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 </h1>
 
                 <p>
-                    Join UniMtaaand discover
-                    accommodation that fits your lifestyle,
-                    budget and university journey.
+
+                    Join CampusNest and discover
+                    accommodation that fits your
+                    lifestyle, budget and university
+                    journey.
+
                 </p>
 
             </div>
@@ -121,11 +161,16 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         </div>
 
 
-        <!-- FORM -->
+        <!-- ==========================================
+         REGISTRATION FORM
+         ========================================== -->
 
         <div class="auth-form-side">
 
             <div class="auth-card">
+
+
+                <!-- LOGO -->
 
                 <div class="brand" style="margin-bottom:25px;">
 
@@ -136,7 +181,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     <div>
 
                         <div class="brand-name">
-                            UniMtaa
+                            CampusNest
                         </div>
 
                         <span class="brand-subtitle">
@@ -152,10 +197,17 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     Create your account
                 </h2>
 
+
                 <p class="auth-card-subtitle">
+
                     Start exploring better accommodation today.
+
                 </p>
 
+
+                <!-- ==========================================
+                 ERROR MESSAGE
+                 ========================================== -->
 
                 <?php if (!empty($error)): ?>
 
@@ -175,8 +227,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 <?php endif; ?>
 
 
-                <form method="POST">
+                <!-- ==========================================
+                 REGISTRATION FORM
+                 ========================================== -->
 
+                <form method="POST" action="">
+
+
+                    <!-- NAME -->
 
                     <div class="form-group">
 
@@ -184,10 +242,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             Full Name
                         </label>
 
-                        <input type="text" name="name" class="form-control" placeholder="Your full name" required>
+                        <input type="text" name="name" class="form-control" placeholder="Your full name"
+                            value="<?php echo htmlspecialchars($_POST["name"] ?? ""); ?>" required>
 
                     </div>
 
+
+                    <!-- EMAIL -->
 
                     <div class="form-group">
 
@@ -195,10 +256,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             Email Address
                         </label>
 
-                        <input type="email" name="email" class="form-control" placeholder="you@example.com" required>
+                        <input type="email" name="email" class="form-control" placeholder="you@example.com"
+                            value="<?php echo htmlspecialchars($_POST["email"] ?? ""); ?>" required>
 
                     </div>
 
+
+                    <!-- PHONE -->
 
                     <div class="form-group">
 
@@ -206,10 +270,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             Phone Number
                         </label>
 
-                        <input type="tel" name="phone" class="form-control" placeholder="07XX XXX XXX">
+                        <input type="tel" name="phone" class="form-control" placeholder="07XX XXX XXX"
+                            value="<?php echo htmlspecialchars($_POST["phone"] ?? ""); ?>">
 
                     </div>
 
+
+                    <!-- ROLE -->
 
                     <div class="form-group">
 
@@ -221,9 +288,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                         <div class="role-selection">
 
 
+                            <!-- STUDENT -->
+
                             <label class="role-option">
 
-                                <input type="radio" name="role" value="student" required>
+                                <input type="radio" name="role" value="student" <?php
+                                if (($_POST["role"] ?? "") === "student") {
+                                    echo "checked";
+                                }
+                                ?> required>
 
                                 <div class="role-option-icon">
                                     🎓
@@ -240,9 +313,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             </label>
 
 
+                            <!-- LANDLORD -->
+
                             <label class="role-option">
 
-                                <input type="radio" name="role" value="landlord">
+                                <input type="radio" name="role" value="landlord" <?php
+                                if (($_POST["role"] ?? "") === "landlord") {
+                                    echo "checked";
+                                }
+                                ?>>
 
                                 <div class="role-option-icon">
                                     🏠
@@ -258,11 +337,12 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                             </label>
 
-
                         </div>
 
                     </div>
 
+
+                    <!-- PASSWORD -->
 
                     <div class="form-group">
 
@@ -276,6 +356,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     </div>
 
 
+                    <!-- CONFIRM PASSWORD -->
+
                     <div class="form-group">
 
                         <label>
@@ -288,6 +370,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     </div>
 
 
+                    <!-- REGISTER BUTTON -->
+
                     <button type="submit" class="btn btn-purple auth-submit">
 
                         Create Account →
@@ -297,6 +381,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 </form>
 
+
+                <!-- LOGIN LINK -->
 
                 <div class="auth-footer">
 

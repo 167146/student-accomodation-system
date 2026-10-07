@@ -52,10 +52,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         // ==========================================
         // CHECK WHETHER EMAIL ALREADY EXISTS
+        // NO ID USED
         // ==========================================
 
         $stmt = $pdo->prepare(
-            "SELECT id FROM users WHERE email = ? LIMIT 1"
+            "SELECT email
+             FROM users
+             WHERE email = ?
+             LIMIT 1"
         );
 
         $stmt->execute([$email]);
@@ -293,10 +297,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             <label class="role-option">
 
                                 <input type="radio" name="role" value="student" <?php
-                                if (($_POST["role"] ?? "") === "student") {
-                                    echo "checked";
-                                }
-                                ?> required>
+                                    if (($_POST["role"] ?? "") === "student") {
+                                        echo "checked";
+                                    }
+                                    ?> required>
 
                                 <div class="role-option-icon">
                                     🎓
@@ -318,10 +322,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             <label class="role-option">
 
                                 <input type="radio" name="role" value="landlord" <?php
-                                if (($_POST["role"] ?? "") === "landlord") {
-                                    echo "checked";
-                                }
-                                ?>>
+                                    if (($_POST["role"] ?? "") === "landlord") {
+                                        echo "checked";
+                                    }
+                                    ?>>
 
                                 <div class="role-option-icon">
                                     🏠

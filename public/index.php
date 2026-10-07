@@ -22,21 +22,47 @@
      NAVIGATION
      ===================================================== -->
 
-    <nav class="navbar">
+    <nav class="home-nav">
 
-        <!-- Logo -->
-        <div class="logo">
-            UniMtaa
-        </div>
+        <!-- LOGO -->
+        <a href="index.php" class="brand">
 
-        <!-- Navigation Links -->
+            <div class="brand-icon">
+                🏠
+            </div>
+
+            <div>
+                <div class="brand-name">
+                    UniMtaa
+                </div>
+
+                <span class="brand-subtitle">
+                    Student Accommodation
+                </span>
+            </div>
+
+        </a>
+
+
+        <!-- NAVIGATION LINKS -->
         <div class="nav-links">
-            <a href="index.php">Home</a>
-            <a href="#">Properties</a>
-            <a href="#">About Us</a>
+
+            <a href="#homes">
+                Find a Home
+            </a>
+
+            <a href="#how">
+                How It Works
+            </a>
+
+            <a href="#why">
+                Why UniMtaa
+            </a>
+
         </div>
 
-        <!-- Login and Register Buttons -->
+
+        <!-- LOGIN AND REGISTER -->
         <div class="nav-buttons">
 
             <a href="login.php">
@@ -50,8 +76,6 @@
         </div>
 
     </nav>
-
-
     <!-- =====================================================
      HERO
      ===================================================== -->

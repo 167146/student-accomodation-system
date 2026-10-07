@@ -1,6 +1,7 @@
 <?php
 
-$host = "localhost";
+$host = "127.0.0.1";
+$port = 3309;
 $dbname = "student_accomodation";
 $username = "root";
 $password = "";
@@ -8,7 +9,7 @@ $password = "";
 try {
 
     $pdo = new PDO(
-        "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
+        "mysql:host=$host;port=$port;dbname=$dbname;charset=utf8mb4",
         $username,
         $password
     );
@@ -26,8 +27,9 @@ try {
 } catch (PDOException $e) {
 
     die(
-        "Database connection failed: "
-        . htmlspecialchars($e->getMessage())
+        "Database connection failed: " .
+        $e->getMessage()
     );
+
 }
 ?>

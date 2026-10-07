@@ -27,7 +27,7 @@ try {
 
     die(
         "Database connection failed: "
-        . $e->getMessage()
+        . htmlspecialchars($e->getMessage())
     );
-
 }
+?>

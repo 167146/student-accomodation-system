@@ -287,7 +287,7 @@
 
             <p>
                 Explore some of the accommodation available
-                on CampusNest.
+                on Unimtaa.
             </p>
 
         </div>
@@ -548,7 +548,7 @@
 ">
 
         <h3>
-            🏠 CampusNest
+            🏠Unimtaa
         </h3>
 
         <p style="

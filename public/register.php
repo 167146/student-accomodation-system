@@ -153,7 +153,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 <p>
 
-                    Join CampusNest and discover
+                    Join Unimtaaand discover
                     accommodation that fits your
                     lifestyle, budget and university
                     journey.

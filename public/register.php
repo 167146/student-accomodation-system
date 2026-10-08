@@ -185,7 +185,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     <div>
 
                         <div class="brand-name">
-                            CampusNest
+                            UniMtaa
                         </div>
 
                         <span class="brand-subtitle">

@@ -35,7 +35,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $_SESSION["name"] = $user["name"];
             $_SESSION["role"] = $user["role"];
 
-            header("Location: ../landlord/landlord.php");
+            header("Location: ../dashboard/landlord.php");
             exit;
 
         } else {
@@ -52,7 +52,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 <head>
 
-    <title>Landlord Login | CampusNest</title>
+    <title>Landlord Login | UniMtaa</title>
 
 </head>
 
@@ -98,7 +98,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     <p>
         Don't have an account?
-        <a href="register.php">
+        <a href="landlord_register.php">
             Register
         </a>
     </p>

@@ -27,9 +27,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         if ($user && password_verify($password, $user["password"])) {
 
-            $_SESSION["user_email"] = $user["email"];
-            $_SESSION["name"] = $user["name"];
-            $_SESSION["role"] = $user["role"];
+           $_SESSION["email"] = $user["email"];
+$_SESSION["user_email"] = $user["email"];
+$_SESSION["name"] = $user["name"];
+$_SESSION["role"] = $user["role"];
 
             header("Location: ../dashboard/landlord.php");
             exit;
@@ -51,7 +52,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Landlord Login | CampusNest</title>
+    <title>Landlord Login | UniMtaa</title>
     <link rel="stylesheet" href="../assets/css/style.css">
 
 </head>
@@ -71,7 +72,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 <div class="brand" style="margin-bottom:40px;">
                     <div class="brand-icon">🏠</div>
                     <div>
-                        <div style="font-size:21px; font-weight:800;">CampusNest</div>
+                        <div style="font-size:21px; font-weight:800;">UniMtaa</div>
                         <small>Student Accommodation</small>
                     </div>
                 </div>
@@ -90,7 +91,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             <div class="auth-card">
 
                 <div class="auth-logo">
-                    <div style="font-size:13px; color:#6D28D9; font-weight:700;">CampusNest &middot; Landlord</div>
+                    <div style="font-size:13px; color:#6D28D9; font-weight:700;">UniMtaa &middot; Landlord</div>
                 </div>
 
                 <h2>Welcome back 👋</h2>
@@ -126,8 +127,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 </div>
 
                 <div style="text-align:center; margin-top:16px;">
-                    <a href="student_login.php" style="color:#81788A; font-size:12px;">
-                        Are you a student? Login here
+                    <a href="landlord_login.php" style="color:#81788A; font-size:12px;">
+                        Are you a Landlord? Login here
                     </a>
                 </div>
 

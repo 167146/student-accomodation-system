@@ -153,7 +153,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 <p>
 
-                    Join Unimtaaand discover
+                    Join Unimtaa and discover
                     accommodation that fits your
                     lifestyle, budget and university
                     journey.

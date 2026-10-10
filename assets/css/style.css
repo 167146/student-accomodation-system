@@ -1284,3 +1284,371 @@ textarea {
     }
 
 }
+
+/* =========================================================
+   CAMPUSNEST DASHBOARD LAYOUT FIX
+   Add this at the VERY END of style.css
+   ========================================================= */
+
+.dashboard-layout,
+.app {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+    align-items: stretch;
+}
+
+.dashboard-layout > .sidebar,
+.app > .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 255px;
+    min-height: 100vh;
+    height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 100;
+    flex-shrink: 0;
+}
+
+.dashboard-layout > .dashboard-main {
+    margin-left: 255px;
+    width: calc(100% - 255px);
+    min-width: 0;
+    flex: 1;
+}
+
+.app > .main {
+    margin-left: 0;
+    width: calc(100% - 255px);
+    min-width: 0;
+    flex: 1;
+}
+
+.dashboard-main,
+.main {
+    min-width: 0;
+    overflow-x: clip;
+}
+
+.dashboard-content,
+.content {
+    width: 100%;
+    max-width: 1500px;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 30px;
+}
+
+.dashboard-topbar,
+.topbar {
+    width: 100%;
+    min-width: 0;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.stats-grid,
+.stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.stat-card,
+.property-card,
+.feature-card {
+    min-width: 0;
+}
+
+.property-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 22px;
+}
+
+.property-card img {
+    display: block;
+    width: 100%;
+    object-fit: cover;
+}
+
+.dashboard-nav a,
+.nav-link {
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 1100px) {
+    .stats-grid,
+    .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .property-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-content,
+    .content {
+        padding: 24px;
+    }
+}
+
+@media (max-width: 750px) {
+    .dashboard-layout > .sidebar,
+    .app > .sidebar {
+        width: 76px;
+        padding: 20px 8px;
+    }
+
+    .dashboard-layout > .dashboard-main {
+        margin-left: 76px;
+        width: calc(100% - 76px);
+    }
+
+    .app > .main {
+        margin-left: 76px;
+        width: calc(100% - 76px);
+    }
+
+    .dashboard-logo {
+        justify-content: center;
+        padding: 5px 0 25px;
+    }
+
+    .dashboard-logo strong,
+    .dashboard-logo small,
+    .dashboard-nav a span,
+    .brand-name,
+    .brand-subtitle,
+    .nav-label,
+    .nav-link:not(.active) span {
+        display: none;
+    }
+
+    .dashboard-nav a,
+    .nav-link {
+        justify-content: center;
+        padding: 13px 8px;
+    }
+
+    .dashboard-content,
+    .content {
+        padding: 18px 14px;
+    }
+
+    .dashboard-topbar,
+    .topbar {
+        padding: 16px;
+    }
+
+    .stats-grid,
+    .stats,
+    .property-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .welcome {
+        padding: 23px;
+    }
+
+    .welcome-mark {
+        display: none;
+    }
+}
+/* =====================================================
+   UniMtaa DASHBOARD LAYOUT FIX
+   Paste this at the VERY BOTTOM of style.css
+   ===================================================== */
+
+.dashboard-layout {
+    display: flex;
+    width: 100%;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Sidebar */
+.dashboard-layout .sidebar {
+    width: 260px;
+    min-width: 260px;
+    height: 100vh;
+    min-height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: auto;
+    padding: 25px 16px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    z-index: 1000;
+}
+
+/* Logo */
+.dashboard-layout .dashboard-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 5px 10px 35px;
+}
+
+.dashboard-layout .dashboard-logo > div:last-child {
+    min-width: 0;
+}
+
+.dashboard-layout .dashboard-logo strong {
+    white-space: nowrap;
+    font-size: 18px;
+}
+
+.dashboard-layout .dashboard-logo small {
+    white-space: nowrap;
+    font-size: 11px;
+}
+
+/* Navigation */
+.dashboard-layout .dashboard-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+}
+
+.dashboard-layout .dashboard-nav a {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+    padding: 13px 14px;
+    border-radius: 12px;
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: normal;
+    line-height: 1.5;
+    font-size: 14px;
+}
+
+.dashboard-layout .dashboard-nav a span {
+    display: inline;
+    min-width: 0;
+    flex: 1;
+}
+
+/* Main content */
+.dashboard-layout .dashboard-main {
+    margin-left: 260px;
+    width: calc(100% - 260px);
+    min-width: 0;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Top bar */
+.dashboard-layout .dashboard-topbar {
+    width: 100%;
+    min-height: 75px;
+    height: auto;
+    padding: 16px 32px;
+    gap: 16px;
+}
+
+/* Dashboard content */
+.dashboard-layout .dashboard-content {
+    width: 100%;
+    min-width: 0;
+    padding: 32px;
+}
+
+/* Welcome banner and cards should fit the content area */
+.dashboard-layout .dashboard-content > *,
+.dashboard-layout .dashboard-content .stats-grid,
+.dashboard-layout .dashboard-content .property-grid {
+    max-width: 100%;
+}
+
+.dashboard-layout .stats-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.dashboard-layout .stat-card {
+    min-width: 0;
+}
+
+.dashboard-layout .dashboard-header {
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+/* Tablet */
+@media (max-width: 1000px) {
+    .dashboard-layout .sidebar {
+        width: 230px;
+        min-width: 230px;
+    }
+
+    .dashboard-layout .dashboard-main {
+        margin-left: 230px;
+        width: calc(100% - 230px);
+    }
+
+    .dashboard-layout .dashboard-content {
+        padding: 24px;
+    }
+
+    .dashboard-layout .stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Mobile */
+@media (max-width: 650px) {
+    .dashboard-layout .sidebar {
+        width: 72px;
+        min-width: 72px;
+        padding: 20px 8px;
+    }
+
+    .dashboard-layout .dashboard-main {
+        margin-left: 72px;
+        width: calc(100% - 72px);
+    }
+
+    .dashboard-layout .dashboard-logo {
+        justify-content: center;
+        padding: 5px 0 30px;
+    }
+
+    .dashboard-layout .dashboard-logo > div:last-child,
+    .dashboard-layout .dashboard-nav a span {
+        display: none;
+    }
+
+    .dashboard-layout .dashboard-nav a {
+        justify-content: center;
+        padding: 13px 8px;
+    }
+
+    .dashboard-layout .dashboard-content {
+        padding: 16px;
+    }
+
+    .dashboard-layout .dashboard-topbar {
+        padding: 14px 16px;
+    }
+
+    .dashboard-layout .stats-grid {
+        grid-template-columns: 1fr;
+    }
+}
+

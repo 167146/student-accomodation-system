@@ -77,7 +77,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 <div class="brand" style="margin-bottom:40px;">
                     <div class="brand-icon">🏠</div>
                     <div>
-                        <div style="font-size:21px;font-weight:800;">CampusNest</div>
+                        <div style="font-size:21px;font-weight:800;">UniMtaa</div>
                         <small>Student Accommodation</small>
                     </div>
                 </div>

@@ -22,11 +22,11 @@ $studentName = $_SESSION["name"] ?? "Student";
 $error = "";
 $success = "";
 
-if (empty($_SESSION["campusnest_csrf"])) {
-    $_SESSION["campusnest_csrf"] = bin2hex(random_bytes(32));
+if (empty($_SESSION["unimtaa_csrf"])) {
+    $_SESSION["unimtaa_csrf"] = bin2hex(random_bytes(32));
 }
 
-$csrfToken = $_SESSION["campusnest_csrf"];
+$csrfToken = $_SESSION["unimtaa_csrf"];
 
 function h($value) {
     return htmlspecialchars((string)($value ?? ""), ENT_QUOTES, "UTF-8");
@@ -1451,7 +1451,7 @@ function statusClass($status) {
             <a class="brand" href="student.php">
                 <div class="brand-icon">🏠</div>
                 <div>
-                    <div class="brand-name">CampusNest</div>
+                    <div class="brand-name">UniMtaa</div>
                     <span class="brand-subtitle">Student Accommodation</span>
                 </div>
             </a>
@@ -1943,7 +1943,7 @@ function statusClass($status) {
                     <h2>Account safety</h2>
                     <p class="muted">
                         Never share your password with a landlord. Contact accommodation
-                        providers through CampusNest and verify listing information before
+                        providers through UniMtaaand verify listing information before
                         making housing decisions.
                     </p>
                     <a class="btn btn-danger" href="../public/logout.php">Log out</a>
@@ -1952,7 +1952,7 @@ function statusClass($status) {
                 <?php endif; ?>
 
                 <div class="footer-note">
-                    CampusNest · Helping students discover accommodation with greater confidence.
+                    UniMtaa · Helping students discover accommodation with greater confidence.
                 </div>
             </div>
         </main>

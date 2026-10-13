@@ -568,7 +568,7 @@
         font-size:11px;
     ">
 
-            © 2026 CampusNest
+            © 2026 Unimtaa. All rights reserved.
 
         </p>
 

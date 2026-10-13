@@ -52,7 +52,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
 <head>
 
-    <title>Student Login | CampusNest</title>
+    <title>Student Login | UniMtaa</title>
 
 </head>
 

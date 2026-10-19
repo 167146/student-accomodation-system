@@ -203,7 +203,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
         background-image:
             linear-gradient(rgba(30, 16, 51, .45), rgba(76, 29, 149, .4)),
-            url('../assets/images/background%20image.jpg');
+            url('../assets/images/background.jpg');
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;

@@ -2,6 +2,16 @@
 session_start();
 require_once "../config/database.php";
 
+/*
+ * Confirmed from your actual database (SHOW CREATE TABLE):
+ *  - properties.property_key is the varchar(300) PRIMARY KEY (no
+ *    auto-increment ID anywhere in this project).
+ *  - properties already has verification_status, verification_notes,
+ *    verified_at, plus location_distance_km, location_flag (added by
+ *    the verification migration).
+ *  - property_photos has property_key, photo_path, is_duplicate.
+ */
+
 // Protect the dashboard: admins only.
 if (
     empty($_SESSION["email"]) ||
@@ -11,12 +21,65 @@ if (
     exit;
 }
 
-// Count properties awaiting review.
+$actionMessage = "";
+
+// Handle approve / reject actions from the table below.
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+
+    $propertyKey = trim($_POST["property_key"] ?? "");
+    $action = $_POST["action"] ?? "";
+    $notes = trim($_POST["verification_notes"] ?? "");
+
+    if ($propertyKey === "" || !in_array($action, ["approve", "reject"], true)) {
+
+        $actionMessage = "Invalid verification request.";
+
+    } else {
+
+        try {
+            if ($action === "approve") {
+                $stmt = $pdo->prepare(
+                    "UPDATE properties
+                     SET verification_status = 'approved',
+                         verification_notes = ?,
+                         verified_at = NOW(),
+                         availability_status = 'available'
+                     WHERE property_key = ?"
+                );
+                $stmt->execute([$notes, $propertyKey]);
+                $actionMessage = "Property approved and published.";
+
+            } else {
+                $stmt = $pdo->prepare(
+                    "UPDATE properties
+                     SET verification_status = 'rejected',
+                         verification_notes = ?,
+                         verified_at = NOW(),
+                         availability_status = 'unavailable'
+                     WHERE property_key = ?"
+                );
+                $stmt->execute([$notes, $propertyKey]);
+                $actionMessage = "Property rejected.";
+            }
+        } catch (PDOException $e) {
+            error_log($e->getMessage());
+            $actionMessage = "Could not update this property. Please check your database structure.";
+        }
+    }
+}
+
+// Count properties awaiting verification.
 $stmt = $pdo->query(
-    "SELECT COUNT(*) FROM properties
-     WHERE availability_status = 'under_review'"
+    "SELECT COUNT(*) FROM properties WHERE verification_status = 'pending'"
 );
 $pendingCount = (int)$stmt->fetchColumn();
+
+// Count properties flagged for a location mismatch.
+$stmt = $pdo->query(
+    "SELECT COUNT(*) FROM properties
+     WHERE verification_status = 'pending' AND location_flag = 1"
+);
+$flaggedCount = (int)$stmt->fetchColumn();
 
 // Count all property listings.
 $stmt = $pdo->query("SELECT COUNT(*) FROM properties");
@@ -25,12 +88,32 @@ $totalCount = (int)$stmt->fetchColumn();
 // Get the latest property listings.
 $stmt = $pdo->query(
     "SELECT property_key, landlord_email, title,
-            location_name, price, availability_status
+            location_name, price, availability_status,
+            verification_status, location_flag, location_distance_km
      FROM properties
      ORDER BY created_at DESC
      LIMIT 10"
 );
 $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Pull photos (and duplicate flags) for just these properties in one go.
+$photosByProperty = [];
+if (!empty($properties)) {
+    $keys = array_column($properties, "property_key");
+    $placeholders = implode(",", array_fill(0, count($keys), "?"));
+
+    $photoStmt = $pdo->prepare(
+        "SELECT property_key, photo_path, is_duplicate
+         FROM property_photos
+         WHERE property_key IN ($placeholders)
+         ORDER BY property_key"
+    );
+    $photoStmt->execute($keys);
+
+    foreach ($photoStmt->fetchAll(PDO::FETCH_ASSOC) as $photo) {
+        $photosByProperty[$photo["property_key"]][] = $photo;
+    }
+}
 
 // Display helpers (styling only).
 $adminName = $_SESSION["name"] ?? "Admin";
@@ -176,6 +259,15 @@ $initial = strtoupper(substr($adminName, 0, 1));
         font-size: 15px;
     }
 
+    .flash {
+        background: #DCFCE7;
+        color: #166534;
+        border-radius: 12px;
+        padding: 13px 18px;
+        font-size: 14px;
+        margin-bottom: 24px;
+    }
+
     /* ---------- STAT CARDS ---------- */
 
     .stats {
@@ -223,6 +315,11 @@ $initial = strtoupper(substr($adminName, 0, 1));
         border: 1px solid #FCE08A;
     }
 
+    .card-icon.red {
+        background: #FDECEC;
+        border: 1px solid #F5C6C6;
+    }
+
     .card h3 {
         font-size: 13px;
         font-weight: 600;
@@ -268,7 +365,7 @@ $initial = strtoupper(substr($adminName, 0, 1));
     table {
         width: 100%;
         border-collapse: collapse;
-        min-width: 720px;
+        min-width: 820px;
     }
 
     th,
@@ -276,6 +373,7 @@ $initial = strtoupper(substr($adminName, 0, 1));
         padding: 15px 18px;
         text-align: left;
         font-size: 14px;
+        vertical-align: top;
     }
 
     th {
@@ -343,6 +441,115 @@ $initial = strtoupper(substr($adminName, 0, 1));
         color: #8A1C1C;
     }
 
+    .status-pending {
+        background: #FEF3C7;
+        color: #92400E;
+    }
+
+    .status-approved {
+        background: #DCFCE7;
+        color: #166534;
+    }
+
+    .flag-warning {
+        display: inline-block;
+        margin-top: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11.5px;
+        font-weight: 600;
+        background: #FDECEC;
+        color: #8A1C1C;
+    }
+
+    /* ---------- PHOTOS ---------- */
+
+    details.photo-details summary {
+        cursor: pointer;
+        font-size: 12.5px;
+        color: var(--burgundy);
+        font-weight: 600;
+    }
+
+    .photo-strip {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+    }
+
+    .photo-thumb {
+        position: relative;
+        width: 72px;
+        height: 60px;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid var(--burgundy-border);
+    }
+
+    .photo-thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    .photo-thumb .dup-tag {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: rgba(138, 28, 28, 0.9);
+        color: #fff;
+        font-size: 8.5px;
+        font-weight: 700;
+        text-align: center;
+        padding: 2px 0;
+    }
+
+    /* ---------- VERIFY FORM ---------- */
+
+    form.verify-form {
+        margin-top: 10px;
+    }
+
+    .verify-form textarea {
+        width: 100%;
+        min-height: 44px;
+        margin-top: 8px;
+        padding: 8px 10px;
+        font: inherit;
+        font-size: 12.5px;
+        border: 1.5px solid var(--burgundy-border);
+        border-radius: 8px;
+        resize: vertical;
+    }
+
+    .verify-actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .btn-small {
+        padding: 7px 14px;
+        border: 0;
+        border-radius: 8px;
+        font-size: 12.5px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .btn-approve {
+        background: #166534;
+        color: #fff;
+    }
+
+    .btn-reject {
+        background: #FDECEC;
+        color: #8A1C1C;
+    }
+
     /* ---------- EMPTY STATE ---------- */
 
     .empty {
@@ -406,6 +613,9 @@ $initial = strtoupper(substr($adminName, 0, 1));
             <p>You can monitor property listings and review submissions here.</p>
         </div>
 
+        <?php if ($actionMessage !== ""): ?>
+        <div class="flash"><?= htmlspecialchars($actionMessage) ?></div>
+        <?php endif; ?>
 
         <!-- STATS -->
         <div class="stats">
@@ -421,8 +631,16 @@ $initial = strtoupper(substr($adminName, 0, 1));
             <div class="card">
                 <div class="card-icon amber">⏳</div>
                 <div>
-                    <h3>Awaiting Review</h3>
+                    <h3>Awaiting Verification</h3>
                     <h2><?= $pendingCount ?></h2>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-icon red">⚠️</div>
+                <div>
+                    <h3>Flagged: Location Mismatch</h3>
+                    <h2><?= $flaggedCount ?></h2>
                 </div>
             </div>
 
@@ -453,12 +671,37 @@ $initial = strtoupper(substr($adminName, 0, 1));
                         <th>Location</th>
                         <th>Monthly Rent</th>
                         <th>Status</th>
+                        <th>Verification</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($properties as $property): ?>
+                    <?php foreach ($properties as $property):
+                        $photos = $photosByProperty[$property["property_key"]] ?? [];
+                        $duplicateCount = count(array_filter($photos, fn($p) => (int)$p["is_duplicate"] === 1));
+                    ?>
                     <tr>
-                        <td class="prop-title"><?= htmlspecialchars($property["title"]) ?></td>
+                        <td class="prop-title">
+                            <?= htmlspecialchars($property["title"]) ?>
+
+                            <?php if (!empty($photos)): ?>
+                            <details class="photo-details">
+                                <summary>
+                                    <?= count($photos) ?> photo<?= count($photos) === 1 ? "" : "s" ?>
+                                    <?= $duplicateCount > 0 ? " · ⚠ {$duplicateCount} possible duplicate" . ($duplicateCount === 1 ? "" : "s") : "" ?>
+                                </summary>
+                                <div class="photo-strip">
+                                    <?php foreach ($photos as $photo): ?>
+                                    <div class="photo-thumb">
+                                        <img src="../properties/<?= htmlspecialchars($photo["photo_path"]) ?>" alt="">
+                                        <?php if ((int)$photo["is_duplicate"] === 1): ?>
+                                        <div class="dup-tag">Duplicate</div>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            </details>
+                            <?php endif; ?>
+                        </td>
                         <td class="muted"><?= htmlspecialchars($property["landlord_email"]) ?></td>
                         <td><?= htmlspecialchars($property["location_name"]) ?></td>
                         <td class="price">KSh <?= number_format((float)$property["price"], 2) ?></td>
@@ -473,6 +716,35 @@ $initial = strtoupper(substr($adminName, 0, 1));
                                     ))
                                 ) ?>
                             </span>
+                        </td>
+                        <td style="min-width:220px;">
+                            <span
+                                class="status status-<?= htmlspecialchars(strtolower($property["verification_status"] ?? "pending")) ?>">
+                                <?= htmlspecialchars(ucfirst($property["verification_status"] ?? "pending")) ?>
+                            </span>
+
+                            <?php if ((int)($property["location_flag"] ?? 0) === 1): ?>
+                            <div class="flag-warning">
+                                ⚠ Location mismatch
+                                <?= $property["location_distance_km"] !== null
+                                    ? " (" . htmlspecialchars((string)$property["location_distance_km"]) . " km)"
+                                    : "" ?>
+                            </div>
+                            <?php endif; ?>
+
+                            <?php if (($property["verification_status"] ?? "pending") === "pending"): ?>
+                            <form method="POST" class="verify-form">
+                                <input type="hidden" name="property_key"
+                                    value="<?= htmlspecialchars($property["property_key"]) ?>">
+                                <textarea name="verification_notes" placeholder="Notes (optional)"></textarea>
+                                <div class="verify-actions">
+                                    <button type="submit" name="action" value="approve"
+                                        class="btn-small btn-approve">Approve</button>
+                                    <button type="submit" name="action" value="reject"
+                                        class="btn-small btn-reject">Reject</button>
+                                </div>
+                            </form>
+                            <?php endif; ?>
                         </td>
                     </tr>
                     <?php endforeach; ?>

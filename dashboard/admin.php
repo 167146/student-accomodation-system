@@ -89,7 +89,8 @@ $totalCount = (int)$stmt->fetchColumn();
 $stmt = $pdo->query(
     "SELECT property_key, landlord_email, title,
             location_name, price, availability_status,
-            verification_status, location_flag, location_distance_km
+            verification_status, location_flag, location_distance_km,
+            submission_latitude
      FROM properties
      ORDER BY created_at DESC
      LIMIT 10"
@@ -725,10 +726,14 @@ $initial = strtoupper(substr($adminName, 0, 1));
 
                             <?php if ((int)($property["location_flag"] ?? 0) === 1): ?>
                             <div class="flag-warning">
-                                ⚠ Location mismatch
-                                <?= $property["location_distance_km"] !== null
-                                    ? " (" . htmlspecialchars((string)$property["location_distance_km"]) . " km)"
-                                    : "" ?>
+                                <?php if ($property["location_distance_km"] !== null): ?>
+                                ⚠ Location mismatch (<?= htmlspecialchars((string)$property["location_distance_km"]) ?>
+                                km apart)
+                                <?php elseif ($property["submission_latitude"] === null): ?>
+                                ⚠ Not checked: landlord's location wasn't shared
+                                <?php else: ?>
+                                ⚠ Not checked: address wasn't found on the map
+                                <?php endif; ?>
                             </div>
                             <?php endif; ?>
 

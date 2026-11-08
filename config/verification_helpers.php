@@ -125,10 +125,36 @@ function geocode_address(string $address): ?array
     // OpenStreetMap, so if the full address isn't found, retry with the
     // more general parts only (e.g. "South B, Kenya"). The distance check
     // only needs to be accurate to a few km, so an area match is enough.
-    $parts = array_values(array_filter(array_map("trim", explode(",", $address))));
+    // Maps can't search "500 meters from T-Mall" or "near JKUAT", but they
+    // can find "T-Mall" and "JKUAT". Strip the directions, keep the landmark.
+    $parts = array_map(function ($part) {
+        $part = preg_replace(
+            "/^\s*\d+(\.\d+)?\s*(meters?|metres?|m|km|kilometers?|kilometres?)\s*(away\s*)?(from|to)?\s*/i",
+            "",
+            $part
+        );
+        $part = preg_replace(
+            "/\b(near|opposite|behind|next to|beside|off|close to)\b\s*/i",
+            "",
+            $part
+        );
+        return trim($part);
+    }, explode(",", $address));
+
+    // Remove empty and repeated parts (e.g. "South B, South B").
+    $seen = [];
+    $parts = array_values(array_filter($parts, function ($part) use (&$seen) {
+        $key = strtolower($part);
+        if ($part === "" || isset($seen[$key])) {
+            return false;
+        }
+        $seen[$key] = true;
+        return true;
+    }));
+
     $attempts = 0;
 
-    for ($i = 0; $i < count($parts) && $attempts < 3; $i++) {
+    for ($i = 0; $i < count($parts) && $attempts < 4; $i++) {
         $query = implode(", ", array_slice($parts, $i));
 
         if ($attempts > 0) {

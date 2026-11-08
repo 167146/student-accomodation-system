@@ -121,6 +121,33 @@ const DUPLICATE_HASH_THRESHOLD = 8;
  */
 function geocode_address(string $address): ?array
 {
+    // Building names ("Tsavo Skywalk Apartments") are often missing from
+    // OpenStreetMap, so if the full address isn't found, retry with the
+    // more general parts only (e.g. "South B, Kenya"). The distance check
+    // only needs to be accurate to a few km, so an area match is enough.
+    $parts = array_values(array_filter(array_map("trim", explode(",", $address))));
+    $attempts = 0;
+
+    for ($i = 0; $i < count($parts) && $attempts < 3; $i++) {
+        $query = implode(", ", array_slice($parts, $i));
+
+        if ($attempts > 0) {
+            usleep(1100000); // Nominatim allows 1 request per second.
+        }
+
+        $attempts++;
+        $result = geocode_single($query);
+
+        if ($result !== null) {
+            return $result;
+        }
+    }
+
+    return null;
+}
+
+function geocode_single(string $address): ?array
+{
     $url = "https://nominatim.openstreetmap.org/search?" . http_build_query([
         "q" => $address,
         "format" => "json",
@@ -136,11 +163,14 @@ function geocode_address(string $address): ?array
     curl_setopt($ch, CURLOPT_TIMEOUT, 6);
 
     $response = curl_exec($ch);
-    curl_close($ch);
 
     if ($response === false) {
+        error_log("Geocoding failed for '{$address}': " . curl_error($ch));
+        curl_close($ch);
         return null;
     }
+
+    curl_close($ch);
 
     $data = json_decode($response, true);
 

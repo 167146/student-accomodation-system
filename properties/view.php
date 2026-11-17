@@ -16,6 +16,13 @@ $propertyKey = trim($_GET["key"] ?? "");
 $property = null;
 $photos = [];
 
+/*
+ * Photo paths are saved as "uploads/xxx.png", relative to the properties
+ * folder. Build the full web path to that folder so photos load no matter
+ * which folder this page is saved in (one level below the project root).
+ */
+$imageBase = rtrim(dirname(dirname($_SERVER["SCRIPT_NAME"])), "/\\") . "/properties/";
+
 if ($propertyKey !== "") {
     // Only approved, available listings are visible to students.
     $stmt = $pdo->prepare(
@@ -352,7 +359,7 @@ if ($propertyKey !== "") {
             <div class="gallery">
                 <div class="main-photo">
                     <?php if (!empty($photos)): ?>
-                    <img id="mainPhoto" src="<?= htmlspecialchars($photos[0]) ?>"
+                    <img id="mainPhoto" src="<?= htmlspecialchars($imageBase . $photos[0]) ?>"
                         alt="<?= htmlspecialchars($property["title"]) ?>">
                     <span class="counter" id="counter">1 of <?= count($photos) ?></span>
                     <?php if (count($photos) > 1): ?>
@@ -369,8 +376,8 @@ if ($propertyKey !== "") {
                 <div class="thumbs">
                     <?php foreach ($photos as $i => $photo): ?>
                     <button type="button" class="thumb <?= $i === 0 ? "active" : "" ?>"
-                        data-src="<?= htmlspecialchars($photo) ?>" data-index="<?= $i + 1 ?>">
-                        <img src="<?= htmlspecialchars($photo) ?>" alt="Photo <?= $i + 1 ?>">
+                        data-src="<?= htmlspecialchars($imageBase . $photo) ?>" data-index="<?= $i + 1 ?>">
+                        <img src="<?= htmlspecialchars($imageBase . $photo) ?>" alt="Photo <?= $i + 1 ?>">
                     </button>
                     <?php endforeach; ?>
                 </div>

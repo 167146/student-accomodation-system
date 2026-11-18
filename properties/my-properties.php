@@ -371,7 +371,7 @@ $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
             <div class="header-actions">
                 <a class="button" href="add.php">+ Add Property</a>
-                <a class="back-link" href="../landlord/landlord.php">&larr; Back to Dashboard</a>
+                <a class="back-link" href="../dashboard/landlord.php">&larr; Back to Dashboard</a>
             </div>
         </div>
     </header>

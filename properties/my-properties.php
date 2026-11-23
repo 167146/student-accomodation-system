@@ -12,6 +12,49 @@ if (
 }
 
 /*
+ * "Mark as occupied / vacant": lets a landlord advertise the same house
+ * again when it becomes vacant, without creating a new listing (so there
+ * is no duplicate-photo flag). Only verified listings can be toggled.
+ */
+if (empty($_SESSION["mp_csrf"])) {
+    $_SESSION["mp_csrf"] = bin2hex(random_bytes(32));
+}
+
+if (
+    $_SERVER["REQUEST_METHOD"] === "POST" &&
+    ($_POST["action"] ?? "") === "toggle_availability" &&
+    hash_equals($_SESSION["mp_csrf"], $_POST["csrf_token"] ?? "")
+) {
+    $toggleStmt = $pdo->prepare(
+        "SELECT availability_status, verification_status
+         FROM properties
+         WHERE property_key = ? AND landlord_email = ?
+         LIMIT 1"
+    );
+    $toggleStmt->execute([$_POST["property_key"] ?? "", $_SESSION["email"]]);
+    $current = $toggleStmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($current && $current["verification_status"] === "approved") {
+        $newStatus = $current["availability_status"] === "available"
+            ? "unavailable"
+            : "available";
+
+        $update = $pdo->prepare(
+            "UPDATE properties
+             SET availability_status = ?
+             WHERE property_key = ? AND landlord_email = ?"
+        );
+        $update->execute([$newStatus, $_POST["property_key"], $_SESSION["email"]]);
+
+        header("Location: my-properties.php?status=" . $newStatus);
+        exit;
+    }
+
+    header("Location: my-properties.php");
+    exit;
+}
+
+/*
  * Same query as before, plus the verification fields and each listing's
  * first uploaded photo (from property_photos) to use as its cover image.
  * image_path is kept as a fallback for older listings.
@@ -345,6 +388,31 @@ $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
         color: #fff;
     }
 
+    .vacancy-form {
+        margin-top: 14px;
+    }
+
+    .vacancy-btn {
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        padding: 9px 16px;
+        border-radius: 10px;
+        border: 1.5px solid var(--violet);
+        background: #fff;
+        color: var(--violet-deep);
+        cursor: pointer;
+    }
+
+    .vacancy-btn:hover {
+        background: #F3E8FF;
+    }
+
+    .vacancy-btn.go {
+        background: var(--violet);
+        color: #fff;
+    }
+
     @media (max-width: 680px) {
         .property {
             flex-direction: column;
@@ -377,6 +445,12 @@ $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
     </header>
 
     <div class="container">
+
+        <?php if (($_GET["status"] ?? "") === "available"): ?>
+        <div class="notice">Marked as vacant. Students can see this listing again.</div>
+        <?php elseif (($_GET["status"] ?? "") === "unavailable"): ?>
+        <div class="notice">Marked as occupied. It is hidden from students until you mark it vacant.</div>
+        <?php endif; ?>
 
         <?php if (isset($_GET["added"])): ?>
         <div class="notice">Property submitted successfully. It is awaiting review.</div>
@@ -471,6 +545,19 @@ $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 <div class="submitted">
                     Submitted <?= htmlspecialchars(date("j M Y, g:i A", strtotime($property["created_at"]))) ?>
                 </div>
+
+                <?php if ($verification === "approved"): ?>
+                <form method="POST" class="vacancy-form">
+                    <input type="hidden" name="action" value="toggle_availability">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["mp_csrf"]) ?>">
+                    <input type="hidden" name="property_key" value="<?= htmlspecialchars($property["property_key"]) ?>">
+                    <?php if ($availability === "available"): ?>
+                    <button type="submit" class="vacancy-btn">Mark as occupied</button>
+                    <?php else: ?>
+                    <button type="submit" class="vacancy-btn go">Mark as vacant (advertise again)</button>
+                    <?php endif; ?>
+                </form>
+                <?php endif; ?>
 
             </div>
         </div>

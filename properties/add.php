@@ -39,6 +39,14 @@ $price = $amenities = $latitude = $longitude = $security_details = "";
 $pets_allowed = $parking_available = $wifi_available = 0;
 $water_reliable = $furnished = 0;
 $environment_noise = "moderate";
+$building_name = $unit_number = $pin_latitude = $pin_longitude = "";
+
+// Challenge code: the landlord writes this on paper and includes it in the
+// first photo, so old, downloaded or AI-generated pictures cannot be reused.
+// It is kept in the session so it cannot be changed from the form.
+if (empty($_SESSION["challenge_code"])) {
+    $_SESSION["challenge_code"] = generate_challenge_code();
+}
 
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $title = trim($_POST["title"] ?? "");
@@ -62,6 +70,15 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     // Left blank if the landlord's browser/device didn't provide one.
     $submission_latitude = trim($_POST["submission_latitude"] ?? "");
     $submission_longitude = trim($_POST["submission_longitude"] ?? "");
+    $gps_accuracy = trim($_POST["gps_accuracy"] ?? "");
+
+    // The pin the landlord dropped on the map, plus building and unit.
+    $pin_latitude = trim($_POST["pin_latitude"] ?? "");
+    $pin_longitude = trim($_POST["pin_longitude"] ?? "");
+    $building_name = trim($_POST["building_name"] ?? "");
+    $unit_number = trim($_POST["unit_number"] ?? "");
+    $used_code = $_SESSION["challenge_code"] ?? generate_challenge_code();
+    $flag_reasons = [];
 
     $upload_dir = __DIR__ . "/uploads/";
     $allowed_types = [
@@ -98,39 +115,73 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         $error = "The coordinates are outside the valid range.";
     } elseif (!in_array($environment_noise, ["quiet", "moderate", "busy"], true)) {
         $error = "Please select a valid environment option.";
+    } elseif (($building_name === "") !== ($unit_number === "")) {
+        $error = "Enter both the building name and the unit number, or leave both blank.";
+    } elseif (strlen($building_name) > 150 || strlen($unit_number) > 30) {
+        $error = "The building name or unit number is too long.";
+    } elseif (
+        $pin_latitude === "" || $pin_longitude === "" ||
+        !is_numeric($pin_latitude) || !is_numeric($pin_longitude) ||
+        (float)$pin_latitude < -90 || (float)$pin_latitude > 90 ||
+        (float)$pin_longitude < -180 || (float)$pin_longitude > 180
+    ) {
+        $error = "Please drop the pin on the map at the property's exact location.";
     } else {
 
         // --- Proof-of-presence check -----------------------------------
-        // Compare the landlord's device location (captured by the browser
-        // at submission time) against the geocoded listing address. This
-        // never blocks submission -- it only flags the listing for admin
-        // review, since GPS can be imprecise or permission can be denied.
-        $location_flag = 1;
-        $location_distance_km = null;
-
+        // 1. The pin must be where the landlord's phone is right now
+        //    (within 150 m = fine, up to 1 km = flagged, beyond = refused).
+        // 2. The typed address is only a rough sanity check.
         $geocoded = geocode_address($address . ", " . $location_name . ", Kenya");
 
-        if (
-            $geocoded !== null &&
-            $submission_latitude !== "" &&
-            $submission_longitude !== "" &&
-            is_numeric($submission_latitude) &&
-            is_numeric($submission_longitude)
-        ) {
-            $location_distance_km = round(haversine_km(
-                (float)$submission_latitude,
-                (float)$submission_longitude,
-                $geocoded["lat"],
-                $geocoded["lng"]
-            ), 2);
+        $loc = evaluate_location([
+            "device_lat" => is_numeric($submission_latitude) ? (float)$submission_latitude : null,
+            "device_lng" => is_numeric($submission_longitude) ? (float)$submission_longitude : null,
+            "accuracy_m" => is_numeric($gps_accuracy) ? (float)$gps_accuracy : null,
+            "pin_lat" => (float)$pin_latitude,
+            "pin_lng" => (float)$pin_longitude,
+            "geocoded" => $geocoded,
+        ]);
 
-            $location_flag = $location_distance_km > LOCATION_MISMATCH_THRESHOLD_KM ? 1 : 0;
+        $location_flag = $loc["flag"];
+        $location_distance_km = $loc["address_distance_km"];
+        $flag_reasons = $loc["reasons"];
+
+        if ($loc["block"]) {
+            $error = $loc["block_message"];
+        }
+
+        // The pin is the property's map location.
+        $latitude = $pin_latitude;
+        $longitude = $pin_longitude;
+
+        // --- Same unit listed twice? ------------------------------------
+        if ($error === "" && $building_name !== "") {
+            try {
+                $unitStmt = $pdo->prepare(
+                    "SELECT landlord_email FROM properties
+                     WHERE LOWER(building_name) = LOWER(?)
+                       AND LOWER(unit_number) = LOWER(?)"
+                );
+                $unitStmt->execute([$building_name, $unit_number]);
+
+                foreach ($unitStmt->fetchAll(PDO::FETCH_COLUMN) as $owner) {
+                    if (strcasecmp($owner, $_SESSION["email"]) === 0) {
+                        $error = "You have already listed {$building_name}, unit {$unit_number}. "
+                            . "Open My Properties and use \"Mark as vacant\" to advertise it again.";
+                        break;
+                    }
+                    $flag_reasons[] = "{$building_name}, unit {$unit_number} is already listed by another landlord.";
+                }
+            } catch (Throwable $e) {
+                error_log("Unit check failed: " . $e->getMessage());
+            }
         }
 
         // --- Validate all photos before saving anything -----------------
         $files = $_FILES["property_images"] ?? null;
 
-        if ($files && isset($files["name"]) && is_array($files["name"])) {
+        if ($error === "" && $files && isset($files["name"]) && is_array($files["name"])) {
             $file_count = count($files["name"]);
 
             if ($file_count > $max_photos) {
@@ -178,16 +229,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             }
         }
 
-        // Load every photo hash already in the system once, so each new
-        // upload can be compared against it (and against earlier photos
-        // in this same batch) for near-duplicates or reused/stock photos.
-        $known_hashes = [];
+        // Load every photo hash already in the system once, with the listing
+        // each belongs to, so a new upload can be compared against them.
+        // Matches with the SAME landlord's own photos (re-listing a vacant
+        // house) or a different unit of the same building are not flagged.
+        $known_photos = [];
         if ($error === "" && !empty($photo_files)) {
             try {
                 $hashStmt = $pdo->query(
-                    "SELECT photo_hash FROM property_photos WHERE photo_hash IS NOT NULL"
+                    "SELECT ph.photo_hash, ph.property_key, p.landlord_email,
+                            p.building_name, p.unit_number,
+                            p.pin_latitude, p.pin_longitude
+                     FROM property_photos ph
+                     JOIN properties p ON p.property_key = ph.property_key
+                     WHERE ph.photo_hash IS NOT NULL"
                 );
-                $known_hashes = $hashStmt->fetchAll(PDO::FETCH_COLUMN);
+                $known_photos = $hashStmt->fetchAll(PDO::FETCH_ASSOC);
             } catch (Throwable $e) {
                 error_log("Could not load existing photo hashes: " . $e->getMessage());
             }
@@ -210,26 +267,48 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $uploaded_paths[] = $destination;
 
                     $hash = average_hash($destination);
-                    $is_duplicate = 0;
+                    $duplicate = ["is_duplicate" => 0, "matched_property_key" => null];
 
                     if ($hash !== null) {
-                        foreach ($known_hashes as $existing_hash) {
-                            if (hamming_distance($hash, $existing_hash) <= DUPLICATE_HASH_THRESHOLD) {
-                                $is_duplicate = 1;
-                                break;
-                            }
-                        }
-                        // So a second copy of the same photo later in this
-                        // same batch also gets caught.
-                        $known_hashes[] = $hash;
+                        $duplicate = classify_duplicate($hash, $known_photos, [
+                            "landlord_email" => $_SESSION["email"],
+                            "building_name" => $building_name,
+                            "unit_number" => $unit_number,
+                            "pin_lat" => (float)$pin_latitude,
+                            "pin_lng" => (float)$pin_longitude,
+                        ]);
+                    }
+
+                    // Camera data hidden in the photo (make/model, time, GPS).
+                    $meta = read_photo_metadata($destination);
+                    $exif_distance_m = null;
+                    if ($meta["lat"] !== null && $meta["lng"] !== null) {
+                        $exif_distance_m = round(haversine_m(
+                            (float)$pin_latitude,
+                            (float)$pin_longitude,
+                            $meta["lat"],
+                            $meta["lng"]
+                        ), 1);
                     }
 
                     $saved_photos[] = [
                         "path" => "uploads/" . $new_name,
                         "hash" => $hash,
-                        "is_duplicate" => $is_duplicate
+                        "is_duplicate" => $duplicate["is_duplicate"],
+                        "matched_property_key" => $duplicate["matched_property_key"],
+                        "has_camera_data" => $meta["has_camera_data"],
+                        "exif_taken_at" => $meta["taken_at"],
+                        "exif_distance_m" => $exif_distance_m
                     ];
                 }
+            }
+        }
+
+        // Turn the photo checks into reasons for the admin.
+        if ($error === "") {
+            $flag_reasons = array_merge($flag_reasons, summarise_photo_checks($saved_photos));
+            if (!empty($flag_reasons)) {
+                $location_flag = max($location_flag, 1);
             }
         }
 
@@ -248,14 +327,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                          pets_allowed, parking_available, wifi_available, water_reliable,
                          furnished, security_details, environment_noise,
                          submission_latitude, submission_longitude,
-                         location_distance_km, location_flag)
+                         location_distance_km, location_flag,
+                         building_name, unit_number, pin_latitude, pin_longitude,
+                         gps_accuracy_m, pin_distance_m, challenge_code, verification_flags)
                      VALUES
                         (:property_key, :landlord_email, :title, :description, :address,
                          :location_name, :price, :amenities, :latitude, :longitude,
                          :pets_allowed, :parking_available, :wifi_available, :water_reliable,
                          :furnished, :security_details, :environment_noise,
                          :submission_latitude, :submission_longitude,
-                         :location_distance_km, :location_flag)"
+                         :location_distance_km, :location_flag,
+                         :building_name, :unit_number, :pin_latitude, :pin_longitude,
+                         :gps_accuracy_m, :pin_distance_m, :challenge_code, :verification_flags)"
                 );
 
                 $stmt->execute([
@@ -279,15 +362,25 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     ":submission_latitude" => $submission_latitude === "" ? null : (float)$submission_latitude,
                     ":submission_longitude" => $submission_longitude === "" ? null : (float)$submission_longitude,
                     ":location_distance_km" => $location_distance_km,
-                    ":location_flag" => $location_flag
+                    ":location_flag" => $location_flag,
+                    ":building_name" => $building_name === "" ? null : $building_name,
+                    ":unit_number" => $unit_number === "" ? null : $unit_number,
+                    ":pin_latitude" => (float)$pin_latitude,
+                    ":pin_longitude" => (float)$pin_longitude,
+                    ":gps_accuracy_m" => is_numeric($gps_accuracy) ? (float)$gps_accuracy : null,
+                    ":pin_distance_m" => $loc["pin_distance_m"],
+                    ":challenge_code" => $used_code,
+                    ":verification_flags" => empty($flag_reasons) ? null : implode("\n", $flag_reasons)
                 ]);
 
                 if (!empty($saved_photos)) {
                     $img_stmt = $pdo->prepare(
                         "INSERT INTO property_photos
-                            (property_key, photo_path, photo_hash, is_duplicate)
+                            (property_key, photo_path, photo_hash, is_duplicate,
+                             matched_property_key, has_camera_data, exif_taken_at, exif_distance_m)
                          VALUES
-                            (:property_key, :photo_path, :photo_hash, :is_duplicate)"
+                            (:property_key, :photo_path, :photo_hash, :is_duplicate,
+                             :matched_property_key, :has_camera_data, :exif_taken_at, :exif_distance_m)"
                     );
 
                     foreach ($saved_photos as $photo) {
@@ -295,7 +388,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             ":property_key" => $property_key,
                             ":photo_path" => $photo["path"],
                             ":photo_hash" => $photo["hash"],
-                            ":is_duplicate" => $photo["is_duplicate"]
+                            ":is_duplicate" => $photo["is_duplicate"],
+                            ":matched_property_key" => $photo["matched_property_key"],
+                            ":has_camera_data" => $photo["has_camera_data"],
+                            ":exif_taken_at" => $photo["exif_taken_at"],
+                            ":exif_distance_m" => $photo["exif_distance_m"]
                         ]);
                     }
                 }
@@ -309,6 +406,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 $pets_allowed = $parking_available = $wifi_available = 0;
                 $water_reliable = $furnished = 0;
                 $environment_noise = "moderate";
+                $building_name = $unit_number = $pin_latitude = $pin_longitude = "";
+
+                // A fresh code for the next listing.
+                $_SESSION["challenge_code"] = generate_challenge_code();
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
@@ -328,6 +429,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         }
     }
 }
+
+$challenge_code = $_SESSION["challenge_code"];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -339,6 +442,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
     <style>
     :root {
         /* Change this path to your own background image. */
@@ -684,6 +788,88 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         border-left: 5px solid var(--ok);
     }
 
+    /* Map pin + challenge code */
+    #map {
+        height: 340px;
+        margin-top: 12px;
+        border-radius: 14px;
+        border: 1.5px solid var(--line);
+        z-index: 1;
+    }
+
+    .map-bar {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        flex-wrap: wrap;
+        margin-top: 14px;
+    }
+
+    .map-bar button,
+    .camera-btn {
+        font: inherit;
+        font-size: 0.88rem;
+        font-weight: 600;
+        padding: 10px 16px;
+        border: 1.5px solid var(--primary);
+        background: #fff;
+        color: var(--primary-dark);
+        border-radius: 999px;
+        cursor: pointer;
+    }
+
+    .map-bar button:hover,
+    .camera-btn:hover {
+        background: var(--soft);
+    }
+
+    #locStatus {
+        font-size: 0.85rem;
+        color: var(--muted);
+    }
+
+    #locStatus.good {
+        color: var(--ok);
+    }
+
+    #locStatus.bad {
+        color: var(--danger);
+    }
+
+    .challenge {
+        margin-top: 16px;
+        padding: 16px 18px;
+        border-radius: 14px;
+        background: var(--soft);
+        border: 1.5px solid var(--accent);
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .challenge .code {
+        font-size: 2.2rem;
+        font-weight: 700;
+        letter-spacing: 0.3em;
+        padding: 4px 18px 4px 24px;
+        border-radius: 12px;
+        background: #fff;
+        color: var(--primary-dark);
+        border: 2px dashed var(--primary);
+    }
+
+    .challenge p {
+        margin: 0;
+        flex: 1;
+        min-width: 220px;
+        font-size: 0.88rem;
+    }
+
+    .camera-row {
+        margin-top: 14px;
+    }
+
     @media (max-width: 640px) {
         body {
             padding: 16px 10px 40px;
@@ -726,6 +912,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["csrf_token"]) ?>">
             <input type="hidden" id="submission_latitude" name="submission_latitude" value="">
             <input type="hidden" id="submission_longitude" name="submission_longitude" value="">
+            <input type="hidden" id="gps_accuracy" name="gps_accuracy" value="">
+            <input type="hidden" id="pin_latitude" name="pin_latitude" value="<?= htmlspecialchars($pin_latitude) ?>">
+            <input type="hidden" id="pin_longitude" name="pin_longitude"
+                value="<?= htmlspecialchars($pin_longitude) ?>">
 
             <fieldset>
                 <legend>Basic details</legend>
@@ -765,6 +955,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                             <?php endforeach; ?>
                         </select>
                     </div>
+                    <div>
+                        <label class="field-label" for="building_name">Building / estate name</label>
+                        <input type="text" id="building_name" name="building_name" maxlength="150"
+                            value="<?= htmlspecialchars($building_name) ?>">
+                        <span class="hint">For apartments and hostels with many similar units.</span>
+                    </div>
+                    <div>
+                        <label class="field-label" for="unit_number">Unit / house number</label>
+                        <input type="text" id="unit_number" name="unit_number" maxlength="30"
+                            value="<?= htmlspecialchars($unit_number) ?>">
+                        <span class="hint">Required if you gave a building name.</span>
+                    </div>
                 </div>
             </fieldset>
 
@@ -794,21 +996,42 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             </fieldset>
 
             <fieldset>
-                <legend>Map location (optional)</legend>
-                <div class="grid">
-                    <div>
-                        <label class="field-label" for="latitude">Latitude</label>
-                        <input type="text" id="latitude" name="latitude" value="<?= htmlspecialchars($latitude) ?>">
-                    </div>
-                    <div>
-                        <label class="field-label" for="longitude">Longitude</label>
-                        <input type="text" id="longitude" name="longitude" value="<?= htmlspecialchars($longitude) ?>">
-                    </div>
+                <legend>Pin the property on the map</legend>
+                <span class="hint" style="margin-top:14px">
+                    You must be at the property when you submit. Allow location access, then drag the pin onto the
+                    building's entrance (or tap the map). A pin far from where your phone is will be refused.
+                </span>
+
+                <div class="map-bar">
+                    <button type="button" id="locateBtn">Use my current location</button>
+                    <span id="locStatus">Waiting for your location...</span>
                 </div>
+                <div id="map"></div>
+
+                <input type="hidden" id="latitude" name="latitude" value="<?= htmlspecialchars($latitude) ?>">
+                <input type="hidden" id="longitude" name="longitude" value="<?= htmlspecialchars($longitude) ?>">
             </fieldset>
 
             <fieldset>
                 <legend>Photos</legend>
+
+                <div class="challenge">
+                    <div class="code" aria-label="Your verification code"><?= htmlspecialchars($challenge_code) ?></div>
+                    <p>
+                        <strong>Your verification code.</strong> Write this number on a piece of paper and place it in
+                        your <strong>first (cover) photo</strong>, for example next to the door. The admin will look for
+                        it.
+                        For apartments, also include a photo of the unit's door number and one from its window or
+                        balcony.
+                    </p>
+                </div>
+
+                <div class="camera-row">
+                    <button type="button" class="camera-btn" id="cameraBtn">📸 Take a photo now</button>
+                    <input type="file" id="camera_input" accept="image/*" capture="environment" hidden>
+                    <span class="hint">Photos taken live with your camera are trusted more than downloaded or screenshot
+                        images.</span>
+                </div>
 
                 <div class="dropzone" id="dropzone">
                     <div class="icon">📷</div>
@@ -825,53 +1048,123 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 </div>
                 <div class="photo-error" id="photoError"></div>
                 <div class="previews" id="previews"></div>
-                <span class="hint">Photos are checked against listings already in the system to flag likely reused or
-                    stock images.</span>
+                <span class="hint">Photos are checked against listings by other landlords, and for camera data, to flag
+                    reused, stock or AI-generated images. Your own earlier photos are fine to reuse.</span>
             </fieldset>
 
             <button type="submit" class="submit">Add Property</button>
         </form>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     <script>
-    // Proof-of-presence: ask the browser for the landlord's current
-    // location so it can be compared, server-side, against the
-    // geocoded listing address. This never blocks submission -- if
-    // permission is denied or unavailable, the form still submits,
-    // and the listing is simply flagged for the admin to double-check.
+    // Proof of presence: the pin must be where the landlord's phone is.
     (function() {
+        var form = document.getElementById("propertyForm");
+        var statusEl = document.getElementById("locStatus");
         var latField = document.getElementById("submission_latitude");
         var lngField = document.getElementById("submission_longitude");
-        var form = document.getElementById("propertyForm");
-        var locationSettled = false;
+        var accField = document.getElementById("gps_accuracy");
+        var pinLat = document.getElementById("pin_latitude");
+        var pinLng = document.getElementById("pin_longitude");
+        var mapLat = document.getElementById("latitude");
+        var mapLng = document.getElementById("longitude");
 
-        function markReady() {
-            locationSettled = true;
+        // Default view: Nairobi.
+        var start = [-1.2921, 36.8219];
+        var hadPin = pinLat.value !== "" && pinLng.value !== "";
+        if (hadPin) {
+            start = [parseFloat(pinLat.value), parseFloat(pinLng.value)];
         }
 
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(function(position) {
-                latField.value = position.coords.latitude;
-                lngField.value = position.coords.longitude;
-                markReady();
-            }, markReady, {
-                timeout: 8000,
-                maximumAge: 60000
+        var map = L.map("map").setView(start, hadPin ? 17 : 12);
+        L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            maxZoom: 19,
+            attribution: "&copy; OpenStreetMap contributors"
+        }).addTo(map);
+
+        var marker = null;
+
+        function setPin(lat, lng) {
+            if (!marker) {
+                marker = L.marker([lat, lng], {
+                    draggable: true
+                }).addTo(map);
+                marker.on("dragend", function() {
+                    var p = marker.getLatLng();
+                    writePin(p.lat, p.lng);
+                });
+            } else {
+                marker.setLatLng([lat, lng]);
+            }
+            writePin(lat, lng);
+        }
+
+        function writePin(lat, lng) {
+            var a = lat.toFixed(7),
+                b = lng.toFixed(7);
+            pinLat.value = a;
+            pinLng.value = b;
+            mapLat.value = a;
+            mapLng.value = b;
+        }
+
+        map.on("click", function(e) {
+            setPin(e.latlng.lat, e.latlng.lng);
+        });
+
+        if (hadPin) {
+            setPin(start[0], start[1]);
+        }
+
+        function say(text, cls) {
+            statusEl.textContent = text;
+            statusEl.className = cls || "";
+        }
+
+        function locate() {
+            if (!navigator.geolocation) {
+                say("Your browser cannot share location. The listing will be flagged for extra checks.", "bad");
+                return;
+            }
+            say("Finding your location...");
+            navigator.geolocation.getCurrentPosition(function(pos) {
+                latField.value = pos.coords.latitude;
+                lngField.value = pos.coords.longitude;
+                accField.value = pos.coords.accuracy;
+                map.setView([pos.coords.latitude, pos.coords.longitude], 18);
+                if (!marker) {
+                    setPin(pos.coords.latitude, pos.coords.longitude);
+                }
+                var acc = Math.round(pos.coords.accuracy);
+                if (acc <= 100) {
+                    say("Location found (accuracy about " + acc +
+                        " m). Now drag the pin onto the building.", "good");
+                } else {
+                    say("Location found but not precise (about " + acc +
+                        " m). Move outside, turn on GPS, then tap the button again.", "bad");
+                }
+            }, function() {
+                say("Location access was denied. The listing will be flagged because your presence cannot be confirmed.",
+                    "bad");
+            }, {
+                enableHighAccuracy: true,
+                timeout: 20000,
+                maximumAge: 0
             });
-        } else {
-            markReady();
         }
+
+        document.getElementById("locateBtn").addEventListener("click", locate);
+        locate();
 
         form.addEventListener("submit", function(e) {
-            if (!locationSettled) {
+            if (pinLat.value === "" || pinLng.value === "") {
                 e.preventDefault();
-                setTimeout(function() {
-                    if (typeof form.requestSubmit === "function") {
-                        form.requestSubmit();
-                    } else {
-                        form.submit();
-                    }
-                }, 1500);
+                say("Please drop the pin on the map before submitting.", "bad");
+                document.getElementById("map").scrollIntoView({
+                    behavior: "smooth",
+                    block: "center"
+                });
             }
         });
     })();
@@ -995,6 +1288,18 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             var chosen = Array.prototype.slice.call(input.files);
             // The browser replaced input.files with only the new picks, so rebuild from store.
             input.files = store.files;
+            addFiles(chosen);
+        });
+
+        // "Take a photo now": opens the camera on phones and adds to the same list.
+        var camBtn = document.getElementById("cameraBtn");
+        var camInput = document.getElementById("camera_input");
+        camBtn.addEventListener("click", function() {
+            camInput.click();
+        });
+        camInput.addEventListener("change", function() {
+            var chosen = Array.prototype.slice.call(camInput.files);
+            camInput.value = "";
             addFiles(chosen);
         });
 

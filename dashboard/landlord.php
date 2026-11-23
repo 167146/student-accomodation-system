@@ -123,7 +123,7 @@ if ($propertyCount === 0) {
 } elseif ($unreadMessages > 0) {
     $nextTitle = "You have " . $unreadMessages . " new message" . ($unreadMessages > 1 ? "s" : "");
     $nextText = "Students are asking about your properties.";
-    $nextHref = "landlord_messages.php";
+    $nextHref = "../messages/inbox.php";
     $nextBtn = "Read messages";
 } elseif ($rejectedCount > 0) {
     $nextTitle = $rejectedCount . " listing" . ($rejectedCount > 1 ? "s need" : " needs") . " changes";
@@ -1945,7 +1945,7 @@ function ico($name, $size = 20)
                     <?= ico("list") ?>
                     My Properties
                 </a>
-                <a href="landlord_messages.php">
+                <a href="../messages/inbox.php">
                     <?= ico("chat") ?>
                     Messages
                     <?php if ($navUnread > 0): ?>
@@ -2146,7 +2146,7 @@ function ico($name, $size = 20)
                         <div class="hero-cta">
                             <a class="btn btn-white" href="../properties/add.php"><?= ico("plus", 18) ?> Add
                                 property</a>
-                            <a class="btn btn-ghost-w" href="landlord_messages.php"><?= ico("chat", 18) ?>
+                            <a class="btn btn-ghost-w" href="../messages/inbox.php"><?= ico("chat", 18) ?>
                                 Messages<?= $unreadMessages > 0 ? " (" . (int)$unreadMessages . ")" : "" ?></a>
                         </div>
                     </div>
@@ -2285,7 +2285,7 @@ function ico($name, $size = 20)
                         <div class="stat-ico"><?= ico("chat", 24) ?></div>
                         <h3>Student messages</h3>
                         <p>Read questions from students and reply to them directly.</p>
-                        <a class="btn btn-soft" href="landlord_messages.php">Open
+                        <a class="btn btn-soft" href="../messages/inbox.php">Open
                             Messages<?= $unreadMessages > 0 ? " (" . (int)$unreadMessages . ")" : "" ?></a>
                     </article>
                 </div>

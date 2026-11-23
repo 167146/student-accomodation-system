@@ -104,7 +104,7 @@ function hamming_distance(string $hashA, string $hashB): int
  * How close two hashes need to be before we treat the photo as a
  * likely duplicate or reused/stock image.
  */
-const DUPLICATE_HASH_THRESHOLD = 8;
+const DUPLICATE_HASH_THRESHOLD = 5;
 
 /**
  * Geocode a free-text address to latitude/longitude using
@@ -233,10 +233,12 @@ function haversine_km(
 }
 
 /**
- * How far apart (in km) the submitted GPS and the geocoded address
- * can be before we flag it for admin review.
+ * How far apart (in km) the landlord's map pin and the geocoded address
+ * text can be before we flag it. This is only a rough sanity check, because
+ * building names are often missing from OpenStreetMap. The real proof of
+ * presence is the device-GPS-versus-pin check (see evaluate_location()).
  */
-const LOCATION_MISMATCH_THRESHOLD_KM = 5.0;
+const LOCATION_MISMATCH_THRESHOLD_KM = 3.0;
 
 /**
  * Generate a natural, readable primary key for a new property --
@@ -258,4 +260,337 @@ function generate_property_key(string $landlordEmail, string $title): string
     $suffix = substr(bin2hex(random_bytes(4)), 0, 8);
 
     return $base . "-" . $suffix;
+}
+
+
+/* =====================================================================
+ * VERSION 2: stronger verification
+ * ===================================================================== */
+
+/** Pin vs. the landlord's phone: at or below this = fine (metres). */
+const PIN_OK_DISTANCE_M = 150;
+/** Pin vs. the landlord's phone: above this the submission is refused (metres). */
+const PIN_BLOCK_DISTANCE_M = 1000;
+/** A GPS reading worse than this is flagged as imprecise (metres). */
+const GPS_MAX_ACCURACY_M = 100;
+/** Two listings closer than this can be units of the same building (metres). */
+const SAME_BUILDING_M = 50;
+/** Photos older than this many days are flagged as possibly not recent. */
+const PHOTO_MAX_AGE_DAYS = 45;
+/** A photo whose own GPS is further than this from the pin is flagged (metres). */
+const EXIF_PHOTO_MAX_DISTANCE_M = 300;
+
+function haversine_m(
+    float $lat1,
+    float $lng1,
+    float $lat2,
+    float $lng2
+): float {
+    return haversine_km($lat1, $lng1, $lat2, $lng2) * 1000;
+}
+
+/**
+ * A random 4-digit code the landlord must write on paper and include in
+ * the first photo. An old, downloaded or AI-generated picture cannot
+ * contain a code that did not exist when the picture was made.
+ */
+function generate_challenge_code(): string
+{
+    return (string) random_int(1000, 9999);
+}
+
+/**
+ * Compare where the landlord's phone is, where they dropped the pin, and
+ * where the typed address geocodes to.
+ *
+ * $in keys: device_lat, device_lng, accuracy_m (nullable), pin_lat, pin_lng,
+ *           geocoded (['lat' =>, 'lng' =>] or null)
+ *
+ * Returns:
+ *   flag     0 = fine, 1 = admin should look, 2 = presence not proven
+ *   block    true when the submission must be refused
+ *   block_message, reasons[], pin_distance_m, address_distance_km
+ */
+function evaluate_location(array $in): array
+{
+    $reasons = [];
+    $flag = 0;
+    $block = false;
+    $blockMessage = "";
+    $pinDistance = null;
+    $addressKm = null;
+
+    $accuracy = $in["accuracy_m"] ?? null;
+    $hasDevice = $in["device_lat"] !== null && $in["device_lng"] !== null;
+
+    if ($hasDevice && $accuracy !== null && $accuracy > PIN_BLOCK_DISTANCE_M) {
+        // The phone only knows roughly where it is (typical of laptops),
+        // so the distance to the pin would mean nothing.
+        $hasDevice = false;
+        $reasons[] = "The device location was too imprecise (about "
+            . round($accuracy) . " m) to confirm the landlord was at the property.";
+        $flag = 2;
+    } elseif (!$hasDevice) {
+        $reasons[] = "The landlord's device location was not shared, so being at the property could not be confirmed.";
+        $flag = 2;
+    }
+
+    if ($hasDevice) {
+        $pinDistance = round(haversine_m(
+            (float)$in["device_lat"],
+            (float)$in["device_lng"],
+            (float)$in["pin_lat"],
+            (float)$in["pin_lng"]
+        ), 1);
+
+        if ($pinDistance > PIN_BLOCK_DISTANCE_M) {
+            $block = true;
+            $blockMessage = "Your pin is about " . round($pinDistance)
+                . " m from where your device is right now. To protect students from fake listings, "
+                . "you must be at the property when you submit it. Move the pin onto the property, "
+                . "or go to the property and try again.";
+        } elseif ($pinDistance > PIN_OK_DISTANCE_M) {
+            $flag = max($flag, 1);
+            $reasons[] = "The pin is " . round($pinDistance)
+                . " m from the landlord's device (automatic limit: " . PIN_OK_DISTANCE_M . " m).";
+        }
+
+        if ($accuracy !== null && $accuracy > GPS_MAX_ACCURACY_M) {
+            $flag = max($flag, 1);
+            $reasons[] = "The GPS reading was imprecise (about " . round($accuracy) . " m).";
+        }
+    }
+
+    $geo = $in["geocoded"] ?? null;
+    if ($geo === null) {
+        $flag = max($flag, 1);
+        $reasons[] = "The typed address could not be found on the map.";
+    } else {
+        $addressKm = round(haversine_km(
+            (float)$in["pin_lat"],
+            (float)$in["pin_lng"],
+            (float)$geo["lat"],
+            (float)$geo["lng"]
+        ), 2);
+
+        if ($addressKm > LOCATION_MISMATCH_THRESHOLD_KM) {
+            $flag = max($flag, 1);
+            $reasons[] = "The typed address is about " . $addressKm . " km from the pin.";
+        }
+    }
+
+    return [
+        "flag" => $flag,
+        "block" => $block,
+        "block_message" => $blockMessage,
+        "reasons" => $reasons,
+        "pin_distance_m" => $pinDistance,
+        "address_distance_km" => $addressKm,
+    ];
+}
+
+function normalise_label(?string $text): string
+{
+    return strtolower(trim(preg_replace("/\s+/", " ", (string)$text)));
+}
+
+/**
+ * Decide whether a new photo is a suspicious duplicate.
+ *
+ * $known: rows with photo_hash, property_key, landlord_email, building_name,
+ *         unit_number, pin_latitude, pin_longitude
+ * $ctx:   landlord_email, building_name, unit_number, pin_lat, pin_lng
+ *
+ * A close match is NOT a problem when:
+ *   - it is the same landlord's own earlier photo (re-listing a vacant house), or
+ *   - it is a different unit of the same building within SAME_BUILDING_M
+ *     (look-alike interiors, e.g. student apartment blocks).
+ */
+function classify_duplicate(string $hash, array $known, array $ctx): array
+{
+    foreach ($known as $row) {
+        if (empty($row["photo_hash"])) {
+            continue;
+        }
+
+        if (hamming_distance($hash, $row["photo_hash"]) > DUPLICATE_HASH_THRESHOLD) {
+            continue;
+        }
+
+        // Same landlord: their own photo again.
+        if (
+            normalise_label($row["landlord_email"] ?? "") ===
+            normalise_label($ctx["landlord_email"] ?? "")
+        ) {
+            continue;
+        }
+
+        // Different unit in the same building.
+        $buildingA = normalise_label($ctx["building_name"] ?? "");
+        $buildingB = normalise_label($row["building_name"] ?? "");
+        $unitA = normalise_label($ctx["unit_number"] ?? "");
+        $unitB = normalise_label($row["unit_number"] ?? "");
+
+        if (
+            $buildingA !== "" && $buildingA === $buildingB &&
+            $unitA !== "" && $unitB !== "" && $unitA !== $unitB
+        ) {
+            $close = true;
+            if (
+                $row["pin_latitude"] !== null && $row["pin_longitude"] !== null &&
+                $ctx["pin_lat"] !== null && $ctx["pin_lng"] !== null
+            ) {
+                $close = haversine_m(
+                    (float)$ctx["pin_lat"],
+                    (float)$ctx["pin_lng"],
+                    (float)$row["pin_latitude"],
+                    (float)$row["pin_longitude"]
+                ) <= SAME_BUILDING_M;
+            }
+
+            if ($close) {
+                continue;
+            }
+        }
+
+        return [
+            "is_duplicate" => 1,
+            "matched_property_key" => $row["property_key"],
+        ];
+    }
+
+    return ["is_duplicate" => 0, "matched_property_key" => null];
+}
+
+/** "12/1" or 12 -> float. */
+function exif_rational($value): float
+{
+    if (is_string($value) && strpos($value, "/") !== false) {
+        [$n, $d] = explode("/", $value, 2);
+        return (float)$d != 0 ? (float)$n / (float)$d : 0.0;
+    }
+    return (float)$value;
+}
+
+function exif_gps_to_decimal(array $parts, string $ref): ?float
+{
+    if (count($parts) < 3) {
+        return null;
+    }
+
+    $value = exif_rational($parts[0])
+        + exif_rational($parts[1]) / 60
+        + exif_rational($parts[2]) / 3600;
+
+    return in_array(strtoupper($ref), ["S", "W"], true) ? -$value : $value;
+}
+
+/**
+ * Read the camera data hidden inside a photo (EXIF).
+ * Photos taken with a phone camera normally carry the camera make/model and
+ * the time they were taken, and sometimes GPS. Screenshots, downloaded
+ * pictures and AI-generated images usually carry none of it. This is a
+ * signal for the admin, not proof: EXIF can be edited.
+ *
+ * Returns has_camera_data (0/1), taken_at (Y-m-d H:i:s or null), lat, lng.
+ */
+function read_photo_metadata(string $path): array
+{
+    $out = [
+        "has_camera_data" => 0,
+        "taken_at" => null,
+        "lat" => null,
+        "lng" => null,
+    ];
+
+    if (!function_exists("exif_read_data")) {
+        return $out;
+    }
+
+    $exif = @exif_read_data($path, "ANY_TAG", true);
+    if (!is_array($exif)) {
+        return $out;
+    }
+
+    $ifd0 = $exif["IFD0"] ?? [];
+    $sub = $exif["EXIF"] ?? [];
+    $gps = $exif["GPS"] ?? [];
+
+    if (!empty($ifd0["Make"]) || !empty($ifd0["Model"])) {
+        $out["has_camera_data"] = 1;
+    }
+
+    $taken = $sub["DateTimeOriginal"] ?? ($ifd0["DateTime"] ?? null);
+    if (is_string($taken)) {
+        $dt = DateTime::createFromFormat("Y:m:d H:i:s", $taken);
+        if ($dt !== false) {
+            $out["taken_at"] = $dt->format("Y-m-d H:i:s");
+        }
+    }
+
+    if (
+        !empty($gps["GPSLatitude"]) && !empty($gps["GPSLongitude"]) &&
+        !empty($gps["GPSLatitudeRef"]) && !empty($gps["GPSLongitudeRef"])
+    ) {
+        $out["lat"] = exif_gps_to_decimal($gps["GPSLatitude"], $gps["GPSLatitudeRef"]);
+        $out["lng"] = exif_gps_to_decimal($gps["GPSLongitude"], $gps["GPSLongitudeRef"]);
+    }
+
+    return $out;
+}
+
+/**
+ * Turn the per-photo results into plain-English reasons for the admin.
+ * Each photo: has_camera_data, exif_taken_at, exif_distance_m, is_duplicate.
+ */
+function summarise_photo_checks(array $photos, ?DateTime $now = null): array
+{
+    $now = $now ?? new DateTime("now");
+    $reasons = [];
+    $total = count($photos);
+
+    if ($total === 0) {
+        return ["No photos were uploaded."];
+    }
+
+    $noCamera = $old = $far = $dup = 0;
+
+    foreach ($photos as $photo) {
+        if (empty($photo["has_camera_data"])) {
+            $noCamera++;
+        }
+        if (!empty($photo["exif_taken_at"])) {
+            $taken = new DateTime($photo["exif_taken_at"]);
+            if ($taken < (clone $now)->modify("-" . PHOTO_MAX_AGE_DAYS . " days")) {
+                $old++;
+            }
+        }
+        if (
+            $photo["exif_distance_m"] !== null &&
+            $photo["exif_distance_m"] > EXIF_PHOTO_MAX_DISTANCE_M
+        ) {
+            $far++;
+        }
+        if (!empty($photo["is_duplicate"])) {
+            $dup++;
+        }
+    }
+
+    if ($noCamera > 0) {
+        $reasons[] = "$noCamera of $total photos have no camera data (they may be screenshots, downloaded or AI-generated images).";
+    }
+    if ($old > 0) {
+        $reasons[] = "$old photo" . ($old === 1 ? " was" : "s were")
+            . " taken more than " . PHOTO_MAX_AGE_DAYS . " days ago.";
+    }
+    if ($far > 0) {
+        $reasons[] = "$far photo" . ($far === 1 ? " was" : "s were")
+            . " taken more than " . EXIF_PHOTO_MAX_DISTANCE_M . " m from the pinned location.";
+    }
+    if ($dup > 0) {
+        $reasons[] = "$dup photo" . ($dup === 1 ? " closely matches a photo" : "s closely match photos")
+            . " in another landlord's listing.";
+    }
+
+    return $reasons;
 }

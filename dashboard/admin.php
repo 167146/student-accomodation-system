@@ -162,7 +162,7 @@ if ($view === "listings") {
     // Count properties flagged for a location mismatch.
     $stmt = $pdo->query(
         "SELECT COUNT(*) FROM properties
-         WHERE verification_status = 'pending' AND location_flag = 1"
+         WHERE verification_status = 'pending' AND location_flag >= 1"
     );
     $flaggedCount = (int)$stmt->fetchColumn();
 
@@ -181,7 +181,9 @@ if ($view === "listings") {
         "SELECT property_key, landlord_email, title,
                 location_name, price, availability_status,
                 verification_status, location_flag, location_distance_km,
-                submission_latitude
+                submission_latitude, building_name, unit_number,
+                pin_distance_m, gps_accuracy_m, challenge_code,
+                verification_flags
          FROM properties
          ORDER BY created_at DESC
          LIMIT 10"
@@ -194,7 +196,7 @@ if ($view === "listings") {
         $placeholders = implode(",", array_fill(0, count($keys), "?"));
 
         $photoStmt = $pdo->prepare(
-            "SELECT property_key, photo_path, is_duplicate
+            "SELECT property_key, photo_path, is_duplicate, has_camera_data
              FROM property_photos
              WHERE property_key IN ($placeholders)
              ORDER BY property_key"
@@ -717,8 +719,45 @@ $initial = strtoupper(substr($adminName, 0, 1));
         color: var(--red);
     }
 
+    .code-box {
+        margin: 10px 0 0;
+        padding: 9px 14px;
+        border-radius: 10px;
+        background: #F3E8FF;
+        color: #4C1D95;
+        font-size: 13px;
+    }
+
+    .code-box strong {
+        font-size: 18px;
+        letter-spacing: .25em;
+        margin-left: 6px;
+    }
+
+    .reason-list {
+        margin: 6px 0 4px;
+        padding-left: 18px;
+    }
+
+    .reason-list li {
+        margin-bottom: 3px;
+    }
+
+    .ok-note {
+        margin: 10px 0 0;
+        padding: 9px 14px;
+        border-radius: 10px;
+        background: #DCFCE7;
+        color: #166534;
+        font-size: 13px;
+    }
+
+    .dup-tag.cam-tag {
+        background: #92400E;
+    }
+
     .flag-warning {
-        display: inline-block;
+        display: block;
         margin-top: 12px;
         padding: 6px 12px;
         border-radius: 10px;
@@ -1340,7 +1379,37 @@ $initial = strtoupper(substr($adminName, 0, 1));
                     </span>
                 </div>
 
-                <?php if ((int)($property["location_flag"] ?? 0) === 1): ?>
+                <?php if (!empty($property["building_name"])): ?>
+                <div class="meta">🏢 <?= htmlspecialchars($property["building_name"]) ?>, unit
+                    <?= htmlspecialchars((string)$property["unit_number"]) ?></div>
+                <?php endif; ?>
+
+                <?php if (!empty($property["challenge_code"])): ?>
+                <div class="code-box">
+                    Look for this code in the cover photo:
+                    <strong><?= htmlspecialchars($property["challenge_code"]) ?></strong>
+                </div>
+                <?php endif; ?>
+
+                <?php
+                    $reasons = array_filter(array_map("trim", explode("\n", (string)($property["verification_flags"] ?? ""))));
+                    $flagLevel = (int)($property["location_flag"] ?? 0);
+                ?>
+                <?php if (!empty($reasons)): ?>
+                <div class="flag-warning">
+                    <strong>⚠ Check before approving</strong>
+                    <ul class="reason-list">
+                        <?php foreach ($reasons as $reason): ?>
+                        <li><?= htmlspecialchars($reason) ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <?php if ($property["pin_distance_m"] !== null): ?>
+                    <small>Pin was <?= htmlspecialchars((string)round((float)$property["pin_distance_m"])) ?> m from the
+                        landlord's
+                        phone<?= $property["gps_accuracy_m"] !== null ? " (GPS accuracy about " . round((float)$property["gps_accuracy_m"]) . " m)" : "" ?>.</small>
+                    <?php endif; ?>
+                </div>
+                <?php elseif ($flagLevel >= 1): ?>
                 <div class="flag-warning">
                     <?php if ($property["location_distance_km"] !== null): ?>
                     ⚠ Location mismatch (<?= htmlspecialchars((string)$property["location_distance_km"]) ?>
@@ -1351,6 +1420,10 @@ $initial = strtoupper(substr($adminName, 0, 1));
                     ⚠ Not checked: address wasn't found on the map
                     <?php endif; ?>
                 </div>
+                <?php elseif ($property["pin_distance_m"] !== null): ?>
+                <div class="ok-note">✓ Automatic checks passed. Pin was
+                    <?= htmlspecialchars((string)round((float)$property["pin_distance_m"])) ?> m from the landlord's
+                    phone.</div>
                 <?php endif; ?>
 
                 <?php if (!empty($photos)): ?>
@@ -1365,6 +1438,8 @@ $initial = strtoupper(substr($adminName, 0, 1));
                             <img src="../properties/<?= htmlspecialchars($photo["photo_path"]) ?>" alt="">
                             <?php if ((int)$photo["is_duplicate"] === 1): ?>
                             <div class="dup-tag">Duplicate</div>
+                            <?php elseif (isset($photo["has_camera_data"]) && (int)$photo["has_camera_data"] === 0): ?>
+                            <div class="dup-tag cam-tag">No camera data</div>
                             <?php endif; ?>
                         </div>
                         <?php endforeach; ?>

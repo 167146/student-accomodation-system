@@ -543,7 +543,85 @@ function read_photo_metadata(string $path): array
  * Turn the per-photo results into plain-English reasons for the admin.
  * Each photo: has_camera_data, exif_taken_at, exif_distance_m, is_duplicate.
  */
+
 function summarise_photo_checks(array $photos, ?DateTime $now = null): array
+{
+    $now = $now ?? new DateTime("now");
+    $reasons = [];
+    $total = count($photos);
+
+    if ($total === 0) {
+        return ["No photos were uploaded."];
+    }
+
+    $old = $far = $dup = 0;
+    $missingMetadata = 0;
+
+    foreach ($photos as $photo) {
+
+        // Missing EXIF information does NOT mean an image is AI-generated.
+        if (empty($photo["has_camera_data"])) {
+            $missingMetadata++;
+        }
+
+        // Check photo age only when a capture date is available.
+        $takenAt = $photo["exif_taken_at"]
+            ?? $photo["taken_at"]
+            ?? null;
+
+        if (!empty($takenAt)) {
+            $taken = new DateTime($takenAt);
+
+            if ($taken < (clone $now)->modify(
+                "-" . PHOTO_MAX_AGE_DAYS . " days"
+            )) {
+                $old++;
+            }
+        }
+
+        // Check GPS distance only when photo GPS distance is available.
+        if (
+            isset($photo["exif_distance_m"]) &&
+            $photo["exif_distance_m"] !== null &&
+            $photo["exif_distance_m"] > EXIF_PHOTO_MAX_DISTANCE_M
+        ) {
+            $far++;
+        }
+
+        // Duplicate detection remains active.
+        if (!empty($photo["is_duplicate"])) {
+            $dup++;
+        }
+    }
+
+    // Metadata absence is informational, not evidence of AI generation.
+    if ($missingMetadata > 0) {
+        $reasons[] = "$missingMetadata of $total photos have no readable camera metadata. "
+            . "This does not establish that the photographs are AI-generated. "
+            . "The administrator should assess the available evidence.";
+    }
+
+    if ($old > 0) {
+        $reasons[] = "$old photo" . ($old === 1 ? " was" : "s were")
+            . " taken more than " . PHOTO_MAX_AGE_DAYS . " days ago.";
+    }
+
+    if ($far > 0) {
+        $reasons[] = "$far photo" . ($far === 1 ? " was" : "s were")
+            . " taken more than " . EXIF_PHOTO_MAX_DISTANCE_M
+            . " m from the pinned location.";
+    }
+
+    if ($dup > 0) {
+        $reasons[] = "$dup photo" . ($dup === 1
+            ? " closely matches a photo"
+            : " closely match photos")
+            . " in another landlord's listing.";
+    }
+
+    return $reasons;
+}
+
 {
     $now = $now ?? new DateTime("now");
     $reasons = [];

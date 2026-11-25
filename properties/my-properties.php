@@ -54,6 +54,88 @@ if (
     exit;
 }
 
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
+    /*
+     * Delete a property. Only the owner can do it, and not while a student
+     * has a pending or accepted booking on it. Booking history and reviews
+     * of the property are removed with it; old messages are kept but are
+     * no longer tied to the deleted property.
+     */
+    if (
+        ($_POST["action"] ?? "") === "delete_property" &&
+        hash_equals($_SESSION["mp_csrf"], $_POST["csrf_token"] ?? "")
+    ) {
+        $key = trim($_POST["property_key"] ?? "");
+
+        $own = $pdo->prepare(
+            "SELECT image_path FROM properties
+             WHERE property_key = ? AND landlord_email = ? LIMIT 1"
+        );
+        $own->execute([$key, $_SESSION["email"]]);
+        $owned = $own->fetch(PDO::FETCH_ASSOC);
+
+        if (!$owned) {
+            header("Location: my-properties.php?deleted=notfound");
+            exit;
+        }
+
+        $active = $pdo->prepare(
+            "SELECT COUNT(*) FROM bookings
+             WHERE property_key = ? AND status IN ('pending', 'accepted')"
+        );
+        $active->execute([$key]);
+
+        if ((int)$active->fetchColumn() > 0) {
+            header("Location: my-properties.php?deleted=blocked");
+            exit;
+        }
+
+        $filesToRemove = [];
+        $pf = $pdo->prepare("SELECT photo_path FROM property_photos WHERE property_key = ?");
+        $pf->execute([$key]);
+        foreach ($pf->fetchAll(PDO::FETCH_COLUMN) as $path) {
+            $filesToRemove[] = $path;
+        }
+        if (!empty($owned["image_path"])) {
+            $filesToRemove[] = $owned["image_path"];
+        }
+
+        try {
+            $pdo->beginTransaction();
+            $pdo->prepare("UPDATE messages SET property_key = NULL WHERE property_key = ?")->execute([$key]);
+            $pdo->prepare("DELETE FROM reviews WHERE property_key = ?")->execute([$key]);
+            $pdo->prepare("DELETE FROM bookings WHERE property_key = ?")->execute([$key]);
+            $pdo->prepare("DELETE FROM property_photos WHERE property_key = ?")->execute([$key]);
+            $pdo->prepare("DELETE FROM properties WHERE property_key = ? AND landlord_email = ?")
+                ->execute([$key, $_SESSION["email"]]);
+            $pdo->commit();
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log($e->getMessage());
+            header("Location: my-properties.php?deleted=error");
+            exit;
+        }
+
+        // Remove the photo files only after the database change succeeded.
+        $base = realpath(__DIR__ . "/uploads");
+        foreach ($filesToRemove as $rel) {
+            $full = realpath(__DIR__ . "/" . ltrim((string)$rel, "/"));
+            if ($base && $full && strpos($full, $base) === 0 && is_file($full)) {
+                $still = $pdo->prepare("SELECT COUNT(*) FROM property_photos WHERE photo_path = ?");
+                $still->execute([$rel]);
+                if ((int)$still->fetchColumn() === 0) {
+                    @unlink($full);
+                }
+            }
+        }
+
+        header("Location: my-properties.php?deleted=ok");
+        exit;
+    }
+}
+
 /*
  * Same query as before, plus the verification fields and each listing's
  * first uploaded photo (from property_photos) to use as its cover image.
@@ -452,6 +534,18 @@ $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
         <div class="notice">Marked as occupied. It is hidden from students until you mark it vacant.</div>
         <?php endif; ?>
 
+        <?php $del = $_GET["deleted"] ?? ""; ?>
+        <?php if ($del === "ok"): ?>
+        <div class="notice">Property deleted.</div>
+        <?php elseif ($del === "blocked"): ?>
+        <div class="notice">This property has a pending or accepted booking. Reject or complete it on the Booking
+            requests page first, then delete.</div>
+        <?php elseif ($del === "notfound"): ?>
+        <div class="notice">That property was not found.</div>
+        <?php elseif ($del === "error"): ?>
+        <div class="notice">The property could not be deleted. Please try again.</div>
+        <?php endif; ?>
+
         <?php if (isset($_GET["added"])): ?>
         <div class="notice">Property submitted successfully. It is awaiting review.</div>
         <?php endif; ?>
@@ -558,6 +652,15 @@ $properties = $stmt->fetchAll(PDO::FETCH_ASSOC);
                     <?php endif; ?>
                 </form>
                 <?php endif; ?>
+
+                <form method="POST" class="vacancy-form"
+                    onsubmit="return confirm('Delete this property permanently? Its photos, bookings and reviews will be removed. This cannot be undone.');">
+                    <input type="hidden" name="action" value="delete_property">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION["mp_csrf"]) ?>">
+                    <input type="hidden" name="property_key" value="<?= htmlspecialchars($property["property_key"]) ?>">
+                    <button type="submit" class="vacancy-btn"
+                        style="color:#991B1B;border-color:#F5B5B5;background:#fff">Delete property</button>
+                </form>
 
             </div>
         </div>

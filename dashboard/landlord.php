@@ -93,6 +93,20 @@ try {
 } catch (PDOException $e) {
     error_log($e->getMessage());
 }
+/* Pending booking requests from students. */
+$pendingBookings = 0;
+try {
+    $stmt = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM bookings b
+         INNER JOIN properties p ON p.property_key = b.property_key
+         WHERE p.landlord_email = ? AND b.status = 'pending'"
+    );
+    $stmt->execute([$email]);
+    $pendingBookings = (int)$stmt->fetchColumn();
+} catch (PDOException $e) {
+    error_log($e->getMessage());
+}
 $navUnread = $unreadMessages;
 
 /* Filter and limit what is shown on the dashboard. */
@@ -120,6 +134,11 @@ if ($propertyCount === 0) {
     $nextText = "Create a listing with photos so students can find it.";
     $nextHref = "../properties/add.php";
     $nextBtn = "Add property";
+} elseif ($pendingBookings > 0) {
+    $nextTitle = $pendingBookings . " booking request" . ($pendingBookings > 1 ? "s" : "") . " waiting";
+    $nextText = "Students have asked to book your properties. Accept or reject each request.";
+    $nextHref = "../properties/booking-requests.php";
+    $nextBtn = "View requests";
 } elseif ($unreadMessages > 0) {
     $nextTitle = "You have " . $unreadMessages . " new message" . ($unreadMessages > 1 ? "s" : "");
     $nextText = "Students are asking about your properties.";
@@ -1944,6 +1963,14 @@ function ico($name, $size = 20)
                 <a href="../properties/my-properties.php">
                     <?= ico("list") ?>
                     My Properties
+                </a>
+                <a href="../properties/booking-requests.php">
+                    <?= ico("check") ?>
+                    Booking requests
+                    <?php if ($pendingBookings > 0): ?>
+                    <span class="dot"
+                        aria-label="<?= (int)$pendingBookings ?> pending"><?= (int)$pendingBookings ?></span>
+                    <?php endif; ?>
                 </a>
                 <a href="../messages/inbox.php">
                     <?= ico("chat") ?>

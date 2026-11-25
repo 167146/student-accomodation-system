@@ -1,6 +1,6 @@
 <?php
 /*
- * CampusNest verification helpers.
+ * Unimtaa verification helpers.
  *
  * Save this file as: config/verification_helpers.php
  * and require it wherever it's needed, e.g.:
@@ -184,7 +184,7 @@ function geocode_single(string $address): ?array
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        "User-Agent: CampusNest-FinalYearProject/1.0"
+        "User-Agent: Unimtaa-FinalYearProject/1.0"
     ]);
     curl_setopt($ch, CURLOPT_TIMEOUT, 6);
 
@@ -544,129 +544,77 @@ function read_photo_metadata(string $path): array
  * Each photo: has_camera_data, exif_taken_at, exif_distance_m, is_duplicate.
  */
 
-function summarise_photo_checks(array $photos, ?DateTime $now = null): array
+
+/**
+ * Summarise photo checks for the administrator.
+ * Missing camera metadata is not proof that a photo is AI-generated.
+ */
+function summarise_photo_checks(array $photos = [], ?DateTime $now = null): array
 {
     $now = $now ?? new DateTime("now");
     $reasons = [];
+
+    // Make sure the supplied value is an array.
+    $photos = is_array($photos) ? $photos : [];
+
     $total = count($photos);
 
     if ($total === 0) {
         return ["No photos were uploaded."];
     }
 
-    $old = $far = $dup = 0;
-    $missingMetadata = 0;
+    $old = 0;
+    $far = 0;
+    $duplicates = 0;
 
     foreach ($photos as $photo) {
-
-        // Missing EXIF information does NOT mean an image is AI-generated.
-        if (empty($photo["has_camera_data"])) {
-            $missingMetadata++;
+        if (!is_array($photo)) {
+            continue;
         }
 
-        // Check photo age only when a capture date is available.
-        $takenAt = $photo["exif_taken_at"]
-            ?? $photo["taken_at"]
-            ?? null;
+        // Check whether the photo date is older than the allowed period.
+        $takenAt = $photo["exif_taken_at"] ?? $photo["taken_at"] ?? null;
 
         if (!empty($takenAt)) {
-            $taken = new DateTime($takenAt);
+            try {
+                $taken = new DateTime($takenAt);
 
-            if ($taken < (clone $now)->modify(
-                "-" . PHOTO_MAX_AGE_DAYS . " days"
-            )) {
-                $old++;
+                if ($taken < (clone $now)->modify("-" . PHOTO_MAX_AGE_DAYS . " days")) {
+                    $old++;
+                }
+            } catch (Exception $e) {
+                // Ignore invalid photo dates.
             }
         }
 
-        // Check GPS distance only when photo GPS distance is available.
-        if (
-            isset($photo["exif_distance_m"]) &&
-            $photo["exif_distance_m"] !== null &&
-            $photo["exif_distance_m"] > EXIF_PHOTO_MAX_DISTANCE_M
-        ) {
+        // Check whether photo GPS is far from the property's pinned location.
+        $distance = $photo["exif_distance_m"] ?? null;
+
+        if ($distance !== null && is_numeric($distance)
+            && (float)$distance > EXIF_PHOTO_MAX_DISTANCE_M) {
             $far++;
         }
 
-        // Duplicate detection remains active.
+        // Check for possible duplicate photographs.
         if (!empty($photo["is_duplicate"])) {
-            $dup++;
+            $duplicates++;
         }
     }
 
-    // Metadata absence is informational, not evidence of AI generation.
-    if ($missingMetadata > 0) {
-        $reasons[] = "$missingMetadata of $total photos have no readable camera metadata. "
-            . "This does not establish that the photographs are AI-generated. "
-            . "The administrator should assess the available evidence.";
-    }
-
     if ($old > 0) {
-        $reasons[] = "$old photo" . ($old === 1 ? " was" : "s were")
+        $reasons[] = $old . " photo" . ($old === 1 ? " was" : "s were")
             . " taken more than " . PHOTO_MAX_AGE_DAYS . " days ago.";
     }
 
     if ($far > 0) {
-        $reasons[] = "$far photo" . ($far === 1 ? " was" : "s were")
+        $reasons[] = $far . " photo" . ($far === 1 ? " was" : "s were")
             . " taken more than " . EXIF_PHOTO_MAX_DISTANCE_M
-            . " m from the pinned location.";
+            . " metres from the pinned location.";
     }
 
-    if ($dup > 0) {
-        $reasons[] = "$dup photo" . ($dup === 1
-            ? " closely matches a photo"
-            : " closely match photos")
-            . " in another landlord's listing.";
-    }
-
-    return $reasons;
-}
-
-{
-    $now = $now ?? new DateTime("now");
-    $reasons = [];
-    $total = count($photos);
-
-    if ($total === 0) {
-        return ["No photos were uploaded."];
-    }
-
-    $noCamera = $old = $far = $dup = 0;
-
-    foreach ($photos as $photo) {
-        if (empty($photo["has_camera_data"])) {
-            $noCamera++;
-        }
-        if (!empty($photo["exif_taken_at"])) {
-            $taken = new DateTime($photo["exif_taken_at"]);
-            if ($taken < (clone $now)->modify("-" . PHOTO_MAX_AGE_DAYS . " days")) {
-                $old++;
-            }
-        }
-        if (
-            $photo["exif_distance_m"] !== null &&
-            $photo["exif_distance_m"] > EXIF_PHOTO_MAX_DISTANCE_M
-        ) {
-            $far++;
-        }
-        if (!empty($photo["is_duplicate"])) {
-            $dup++;
-        }
-    }
-
-    if ($noCamera > 0) {
-        $reasons[] = "$noCamera of $total photos have no camera data (they may be screenshots, downloaded or AI-generated images).";
-    }
-    if ($old > 0) {
-        $reasons[] = "$old photo" . ($old === 1 ? " was" : "s were")
-            . " taken more than " . PHOTO_MAX_AGE_DAYS . " days ago.";
-    }
-    if ($far > 0) {
-        $reasons[] = "$far photo" . ($far === 1 ? " was" : "s were")
-            . " taken more than " . EXIF_PHOTO_MAX_DISTANCE_M . " m from the pinned location.";
-    }
-    if ($dup > 0) {
-        $reasons[] = "$dup photo" . ($dup === 1 ? " closely matches a photo" : "s closely match photos")
+    if ($duplicates > 0) {
+        $reasons[] = $duplicates . " photo"
+            . ($duplicates === 1 ? " closely matches a photo" : "s closely match photos")
             . " in another landlord's listing.";
     }
 

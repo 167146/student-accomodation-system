@@ -497,6 +497,26 @@ $challenge_code = $_SESSION["challenge_code"];
         border-bottom: 5px solid var(--accent);
     }
 
+    .back-dashboard {
+        display: inline-block;
+        margin-bottom: 20px;
+        padding: 9px 16px;
+        color: white;
+        text-decoration: none;
+        font-size: 0.85rem;
+        font-weight: 500;
+        border: 1px solid rgba(255, 255, 255, 0.7);
+        border-radius: 25px;
+        background: rgba(255, 255, 255, 0.12);
+        transition: all 0.3s ease;
+    }
+
+    .back-dashboard:hover {
+        background: white;
+        color: var(--primary-dark);
+        transform: translateX(-3px);
+    }
+
     .form-header h1 {
         margin: 0 0 6px;
         font-size: 1.7rem;
@@ -896,8 +916,14 @@ $challenge_code = $_SESSION["challenge_code"];
 <body>
     <div class="container">
         <div class="form-header">
+
+            <a href="../dashboard/landlord.php" class="back-dashboard">
+                ← Back to Dashboard
+            </a>
+
             <h1>Add a New Property</h1>
             <p>Fill in the details and upload photos so students can find your place.</p>
+
         </div>
 
         <?php if ($error !== ""): ?>
